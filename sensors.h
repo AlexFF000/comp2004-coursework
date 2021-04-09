@@ -19,8 +19,4 @@
     private:
         float readLDR(), readTemperature(), readPressure();
  };
-
-// Function to read the sensors and return a readings object
-readings readSensors();
-void initialiseSensors();
  
