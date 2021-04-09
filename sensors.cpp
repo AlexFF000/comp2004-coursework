@@ -1,6 +1,6 @@
 /*
     Alex Redmond, Group R
-    
+
     Functions for reading data from sensors
 */
 #include "mbed.h"
@@ -31,7 +31,6 @@ float Sensors::readTemperature(){
 
 readings Sensors::readSensors(){
     // Read the sensors and return as a readings object
-    readings data = {readTemperature(), readPressure(), readLDR()};
-    return data;
+    return readings {readTemperature(), readPressure(), readLDR()};
 }
 
