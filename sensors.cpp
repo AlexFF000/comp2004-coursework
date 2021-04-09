@@ -9,26 +9,26 @@
 AnalogIn ldr(PC_0);
 BMP280_SPI environmentSensors(PB_5, PB_4, PB_3, PB_2);
 
-void initialiseSensors(){
-    // Initialise the environement sensors.  THIS WOULD BE BETTER IN A CLASS CONSTRUCTOR
+Sensors::Sensors(){
     environmentSensors.initialize();
 }
 
-float readLDR(){
+
+float Sensors::readLDR(){
     // Read data from the LDR
     float data = ldr;
     return data;
 }
 
-float readPressure(){
+float Sensors::readPressure(){
     return environmentSensors.getPressure();
 }
 
-float readTemperature(){
+float Sensors::readTemperature(){
     return environmentSensors.getTemperature();
 }
 
-readings readSensors(){
+readings Sensors::readSensors(){
     // Read the sensors and return as a readings object
     readings data = {readTemperature(), readPressure(), readLDR()};
     return data;
