@@ -5,7 +5,11 @@
  */
 
 // Struct for holding the readings from the sensors
- struct readings{
+ #include <string>
+ using std::string;
+
+struct readings{
+     string datetime;
      float temperature;
      float pressure;
      float lightLevel;
