@@ -1,9 +1,12 @@
 #include "mbed.h"
 #include "sensors.h"
+#include "Buffer.h"
 
 // main() runs in its own thread in the OS
 int main()
 {
+    Buffer<int> bf = Buffer<int>(2);
+    bf.addItem(2);
     Sensors sensors = Sensors();
     while (true) {
         ThisThread::sleep_for(10s);
