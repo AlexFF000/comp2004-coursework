@@ -15,15 +15,21 @@ class Buffer{
     public:
         // The buffer only accepts fixed size items
         Buffer(int maxSize){
-            this->maxSize = maxSize;
-            // Allocate memory pool (using calloc as pool needs to be zeroed for free list to work)
-            this->pool = (T*) calloc(sizeof(T), maxSize);
-            this->nextFree = 0;
-            this->blocksUsed = 0;
+            if (sizeof(T) < sizeof(T*)){
+                // For free pointer allocation to work, the type to be stored must be at least large enough to store a pointer
+                MBED_ERROR(MBED_MAKE_ERROR(MBED_MODULE_APPLICATION, MBED_ERROR_CODE_EINVAL), "T must be a large enough type to contain a pointer");  // EINVAL = 22 = Invalid Argument
+            }
+            else{
+                this->maxSize = maxSize;
+                // Allocate memory pool (using calloc as pool needs to be zeroed for free list to work)
+                this->pool = (T*) calloc(sizeof(T), maxSize);
+                this->nextFree = nullptr;  // Point to null to indicate no deallocated blocks
+                this->blocksUsed = 0;
+            }
         };
         ~Buffer();
         void addItem(T item){
-            printf("%i", (int)this->allocate());
+            
         }
         // When the items are ready, they are written to an area of memory starting at addressToWrite
         void readItems(int quantity, int &addressToWrite, bool LIFO=false, bool removeAfterRead=false);
@@ -38,7 +44,7 @@ class Buffer{
         T* allocate(){
             // Allocate a block and return a pointer to it
             if(this->blocksUsed < this->maxSize){
-                if (this->nextFree == 0){
+                if (this->nextFree == nullptr){
                     // There are no previously deallocated blocks, so allocate the next free block for the first time
                     T* newBlock = this->pool + this->blocksUsed;
                     this->blocksUsed++;
@@ -46,9 +52,9 @@ class Buffer{
                 }
                 else{
                     // Use the next deallocated block
-                    T* newBlock = this->pool + this->nextFree;
+                    T* newBlock = this->nextFree;
                     // Copy the pointer in the deallocated block, that points to the next deallocated block, into nextFree
-                    this->nextFree = (int) *newBlock;
+                    this->nextFree = (T*) (int) *newBlock;
                     this->blocksUsed++;
                     return newBlock;
                 }
@@ -61,12 +67,13 @@ class Buffer{
 
         void deallocate(T* address){
             // Write the value of nextFree to the address to be deallocated
-            address = this->nextFree;
+            *address = (int)this->nextFree;
             // Convert this address to an index, and write it to nextFree
-            this->nextFree = (address - this->pool) / sizeof(T);
+            this->nextFree = address;
+            this->blocksUsed--;
         }
-        int maxSize, blocksUsed, nextFree;  // The number of blocks in the pool that are currently allocated
-        T* pool;
+        int maxSize, blocksUsed;  // The number of blocks in the pool that are currently allocated
+        T* pool, *nextFree;
         T* queue[];
 };
 
