@@ -5,8 +5,8 @@
 // main() runs in its own thread in the OS
 int main()
 {
-    Buffer<readings> bf = Buffer<readings>(2);
-    Sensors sensors = Sensors();
+    Buffer<readings> bf(2);
+    Sensors sensors;
     while (true) {
         ThisThread::sleep_for(10s);
         readings env = sensors.readSensors();
