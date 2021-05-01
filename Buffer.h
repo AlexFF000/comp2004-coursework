@@ -6,9 +6,18 @@
         - The producer thread pushes to the buffer with addItem()
         - Consumer threads read from it with readItems
         - readItems uses requestItems to register to be woken up by addItems when the requested number of items are ready
-    It uses a memory pool using the free list allocation algorithm
+    Signal/Wait is used as opposed to semaphores:
+        a) To allow multiple items to be read from the buffer by the same readItems call (without needing to try to aquire the semaphore multiple times)
+        b) To more easily allow multiple consumer threads
+    It uses a memory pool using the free list allocation algorithm  *THIS MAY NOT STILL BE TRUE*
 */
 # include "mbed.h"
+
+// Struct used by Buffer class to represent waiting consumers
+struct consumer{
+    osThreadId_t threadId = 0;
+    int requestedItems = 0;
+};
 
 template <class T>
 class Buffer{
@@ -22,45 +31,180 @@ class Buffer{
             else{
                 this->maxSize = maxSize;
                 // Create queue
-                this->queue = new T*[maxSize];
+                // this->queue = new T*[maxSize];
                 // Allocate memory pool (using calloc as pool needs to be zeroed for free list to work)
                 this->pool = (T*) calloc(sizeof(T), maxSize);
                 this->nextFreeBlock = nullptr;  // Point to null to indicate no deallocated blocks
                 this->blocksUsed = 0;
+                this->nextEmpty = 0;
+                this->oldestItem = -1;  // Set to -1 initially as there are no items yet
+                this->amountToDelete = 0;
+                this->consumersUsingData = 0;
             }
         };
         ~Buffer();
         void addItem(T item){
-            if(this->itemPointersMutex.trylock_for(10000)){
+            if(this->itemPointersMutex.trylock_for(10s)){
                 if (this->difference(this->nextEmpty, this->oldestItem) != 0){
-                    // Allocate a block in pool, write item to it, and place pointer in buffer
-                    T *block = this->allocate();
-                    block = *item;
-                    this->queue[this->nextEmpty] = block;
+                    // Write to position nextEmpty in pool and increment nextEmpty
+                    printf("Got difference");
+                    this->pool[this->nextEmpty] = item;
+                    printf("Wrote to pool");
                     this->increment(this->nextEmpty, 1);
+                    if (this->oldestItem == -1){
+                        // This is the first item to be added so increment oldestItem
+                        this->oldestItem = 0;
+                    }
                     // Signal waiting threads
-
-                    this->itemPointersMutex.unlock();
+                    if (this->waitingConsumersMutex.trylock_for(10s) && this->amountToDeleteMutex.trylock_for(10s)){
+                        int itemsAvailable = difference(this->oldestItem, this->nextEmpty);
+                        osThreadId_t consumersToWake[5];
+                        int consumersToWakeLength = 0;
+                        for (int i = 0; i < 5; i++){
+                            if (this->waitingConsumers[i].requestedItems != 0 && this->waitingConsumers[i].requestedItems <= itemsAvailable){
+                                // Increment consumersUsingData for each consumer that will be woken.  This will prevent anything being deleted until all these threads have finished with the buffer
+                                this->consumersUsingData++;
+                                // Add threads to array to be woken after this loop, not during it.  Otherwise a race condition could be introduced as consumersUsingData could be incomplete by the time consumers wake
+                                consumersToWake[consumersToWakeLength] = this->waitingConsumers[i].threadId;
+                                consumersToWakeLength++;
+                                // Free slot for another consumer
+                                this->waitingConsumers[i].requestedItems = 0;
+                            }
+                        }
+                        this->waitingConsumersMutex.unlock();
+                        this->amountToDeleteMutex.unlock();
+                        this->itemPointersMutex.unlock();
+                        for (int i = 0; i < consumersToWakeLength; i++)
+                            osSignalSet(consumersToWake[i], 1);
+                        
+                    }
+                    else{
+                        // CRITICAL ERROR (mutex timeout)
+                    }
                 }
                 else{
+                    this->itemPointersMutex.unlock();
                     // CRITICAL ERROR (queue is full)
                     printf("Queue full");
                 }
             }
             else{
                 // CRITICAL ERROR (mutex timeout)
-                printf("Mutex timeout");
+                printf("Mutex timeout");  // Seems to crash somewhere Error Status: 0x80010133 Code: 307 Module: 1
             }
         }
         // When the items are ready, they are written to an area of memory starting at addressToWrite
-        void readItems(int quantity, int &addressToWrite, bool LIFO=false, bool removeAfterRead=false);
+        void readItems(int quantity, T* addressToWrite, bool LIFO=false, bool removeAfterRead=false){
+            // Wait until enough items become available
+            requestItems(quantity);
+            if (this->itemPointersMutex.trylock_for(10000)){
+                if (LIFO){
+                    // Read from most recent rather than oldest
+                    int itemsRead = 0;
+                    int index = this->nextEmpty;
+                    // Most recent item will the one immediately before the nextEmpty pointer
+                    decrement(index, 1);
+
+                    while (itemsRead < quantity && index != this->oldestItem - 1){
+                        // Read quantity items (or as many as available if not enough) starting from the most recent
+                        addressToWrite[itemsRead] = this->pool[index];
+                        decrement(index, 1);
+                        itemsRead++;
+                    }
+                }
+                else{
+                    // Default (FIFO) mode.  Read from oldest
+                    int itemsRead = 0;
+                    int index = this->oldestItem;
+                    while (itemsRead < quantity && index != this->nextEmpty){
+                        addressToWrite[itemsRead] = this->pool[index];
+                        increment(index, 1);
+                        itemsRead++;
+                    }
+                }
+                if (this->amountToDeleteMutex.trylock_for(10s)){
+                    if (!LIFO && removeAfterRead){
+                        /* 
+                            Delete the items (only available for FIFO mode. Being able to delete in both directions would be unnecessarily complicated, as no LIFO functionality needs to delete)
+                            To help avoid race conditions, the items are not necessarily deleted here. Instead the amountToDelete property is modified to specify that the items should be deleted when ready
+                        */
+                        if (this->amountToDelete < quantity){
+                            // Only increase the amountToDelete if another thread hasn't already requested a larger amount
+                            this->amountToDelete = quantity;
+                        }
+                    }
+                    // Decrement to show that this thread is no longer affected if the data is deleted
+                    this->consumersUsingData--;
+                    if (this->consumersUsingData == 0 && 0 < this->amountToDelete){
+                        // If there is data to be deleted and no consumers need it, then delete it now
+                        // Items do not need to be deleted, instead the oldestItem pointer is adjusted so they can be overwritten
+                        this->increment(this->oldestItem, this->amountToDelete);
+                    }
+                    this->amountToDeleteMutex.unlock();
+                    this->itemPointersMutex.unlock();
+                }
+                else{
+                    // CRITICAL ERROR (mutex timeout)
+                }
+                    
+                
+            }
+            else{
+                // CRITICAL ERROR (mutex timeout)
+            }
+        }
 
     private:
-        void requestItems(int threadHandle, int quantity);
+        void requestItems(int quantity){
+            // Add this thread, and the number of items it wants, to waitingConsumers and then wait to be woken by addItems when enough become ready
+            if (this->waitingConsumersMutex.trylock_for(10s)){
+                int i = 0;
+                for (; i < 5; i++){
+                    // Find a free slot in waitingConsumers (requestedItems being 0 indicates an unused slot)
+                    if (this->waitingConsumers[i].requestedItems == 0){
+                        this->waitingConsumers[i] = consumer{ThisThread::get_id(), quantity};
+                        this->waitingConsumersMutex.unlock();
+                        ThisThread::flags_wait_all_for(1, 100s, true);
+                        break;
+                    }
+                }
+                if (i == 5){
+                    // There were no free slots
+                    // CRITICAL ERROR (too many consumers)
+                }
+                /*if (this->consumersCount <= 5){
+                   this->waitingConsumers[this->consumersCount - 1] = consumer{ThisThread::get_id(), quantity};
+                   this->waitingConsumersMutex.unlock();
+                   ThisThread::flags_wait_all_for(1, 100s, true);
+                   // Get mutex again to remove this thread from waitingConsumers, as it is no longer waiting
+                   if (this->waitingConsumersMutex.trylock_for(10s)){
+                       this->consumersCount--;
+                       this->waitingConsumersMutex.unlock();
+                   }
+                   else{
+                       // CRITICAL ERROR (mutex timeout)
+                   }
+                }
+                else{
+                    // CRITICAL ERROR (too many consumers)
+                } */
+            }
+            else{
+                // CRITICAL ERROR (mutex timeout)
+            }
+        }
+
         void removeItems();
         // The buffer is circular, so special increment / decrement functions are useful
-        int increment(int pointer, int amount);
-        int decrement(int pointer, int amount);
+        void increment(int &pointer, int amount){
+            if (this->maxSize <= pointer + amount) pointer = amount - (this->maxSize - pointer);
+            else pointer += amount;
+        }
+        void decrement(int &pointer, int amount){
+            if (-1 <= pointer - amount) pointer = this->maxSize - (amount - pointer);
+            else pointer -= amount;
+        }
+
         int difference(int firstPosition, int secondPosition){
             /* 
             Returns the circular difference between two positions in the queue (the number of places after and including firstPosition up to (but not including) secondPosition)
@@ -104,8 +248,10 @@ class Buffer{
             this->blocksUsed--;
         }
         int maxSize, blocksUsed, oldestItem, nextEmpty;  // maxSize is the number of places in the buffer, blocksUsed is the number of blocks in the pool that are currently allocated.  oldestItem is the index in the queue of the oldest item in the queue, nextEmpty is index of oldest free postion
-        T *pool, *nextFreeBlock, **queue;  // pool points to the memory pool, nextFreeBlockBlock to the next deallocated block, and queue is an array of pointers to blocks in pool
-        Mutex itemPointersMutex;  // oldestItem and nextEmpty will always be used together so can share the same mutex
+        T *pool, *nextFreeBlock, *queue;  // pool points to the memory pool, nextFreeBlockBlock to the next deallocated block, and queue is an array of pointers to blocks in pool
+        int amountToDelete, consumersUsingData;  // amountToDelete tells the delete thread how many items to delete, consumersUsingData is used for consumer threads to announce that they no longer need the data in the buffer (so the delete thread can safely delete)
+        consumer waitingConsumers[5];
+        Mutex itemPointersMutex, amountToDeleteMutex, waitingConsumersMutex;  // oldestItem and nextEmpty will always be used together so can share the same mutex
 };
 
 /* template <class T>
