@@ -34,7 +34,7 @@ void removeItems(){
     printf("RemoveItems thread id is: %i", (int) ThisThread::get_id());
     readings storage[2];
     while (true){
-        bf.readItems(2, storage, true, true);
+        bf.readItems(2, storage, false, true);
         printf("Just read: %f", storage[0].pressure);
     }
 }

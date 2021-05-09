@@ -9,12 +9,8 @@
     Signal/Wait is used as opposed to semaphores:
         a) To allow multiple items to be read from the buffer by the same readItems call (without needing to try to aquire the semaphore multiple times)
         b) To more easily allow multiple consumer threads
-    It uses a memory pool using the free list allocation algorithm  *THIS MAY NOT STILL BE TRUE*
 */
 # include "mbed.h"
-
-bool exited = false;
-
 
 // Struct used by Buffer class to represent waiting consumers
 struct consumer{
@@ -33,12 +29,8 @@ class Buffer{
             }
             else{
                 this->maxSize = maxSize;
-                // Create queue
-                // this->queue = new T*[maxSize];
-                // Allocate memory pool (using calloc as pool needs to be zeroed for free list to work)
-                this->pool = (T*) calloc(sizeof(T), maxSize);
-                this->nextFreeBlock = nullptr;  // Point to null to indicate no deallocated blocks
-                this->blocksUsed = 0;
+                // Allocate memory pool
+                this->pool = (T*) malloc(sizeof(T) * maxSize);
                 this->nextEmpty = 0;
                 this->oldestItem = -1;  // Set to -1 initially as there are no items yet
                 this->amountToDelete = 0;
@@ -50,9 +42,7 @@ class Buffer{
             if(this->itemPointersMutex.trylock_for(10s)){
                 if (this->oldestItem == -1 || this->difference(this->nextEmpty, this->oldestItem) != 0){
                     // Write to position nextEmpty in pool and increment nextEmpty
-                    printf("Got difference");
                     this->pool[this->nextEmpty] = item;
-                    printf("Wrote to pool");
                     if (this->oldestItem == -1){
                         // This is the first item to be added so point to it
                         this->oldestItem = this->nextEmpty;
@@ -64,7 +54,6 @@ class Buffer{
                         int spacesUsed = this->maxSize - spacesAvailable;
                         osThreadId_t consumersToWake[5];
                         int consumersToWakeLength = 0;
-                        printf("Waiting: %i,  %i, %i, %i, %i, Avail: %i", waitingConsumers[0].requestedItems, waitingConsumers[1].requestedItems, waitingConsumers[2].requestedItems, waitingConsumers[3].requestedItems, waitingConsumers[4].requestedItems, spacesUsed);
                         for (int i = 0; i < 5; i++){
                             if (this->waitingConsumers[i].requestedItems != 0 && this->waitingConsumers[i].requestedItems <= spacesUsed){
                                 // Increment consumersUsingData for each consumer that will be woken.  This will prevent anything being deleted until all these threads have finished with the buffer
@@ -74,7 +63,6 @@ class Buffer{
                                 consumersToWakeLength++;
                                 // Free slot for another consumer
                                 this->waitingConsumers[i].requestedItems = 0;
-                                printf("Found consumer to wake");
                             }
                         }
                         this->waitingConsumersMutex.unlock();
@@ -83,7 +71,6 @@ class Buffer{
                         for (int i = 0; i < consumersToWakeLength; i++)
                             osSignalSet(consumersToWake[i], 1);
 
-                        printf("\nAdded ");
                     }
                     else{
                         // CRITICAL ERROR (mutex timeout)
@@ -92,10 +79,7 @@ class Buffer{
                 else{
                     this->itemPointersMutex.unlock();
                     // CRITICAL ERROR (queue is full)
-                    if (exited == false){
                     printf("Queue full oldestItem: %i nextEmpty: %i", this->oldestItem, this->nextEmpty);
-                    exited = true;
-                    }
                 }
             }
             else{
@@ -106,9 +90,7 @@ class Buffer{
         // When the items are ready, they are written to an area of memory starting at addressToWrite
         void readItems(int quantity, T* addressToWrite, bool LIFO=false, bool removeAfterRead=false){
             // Wait until enough items become available
-            printf("About to request");
             this->requestItems(quantity);
-            printf("Request done");
             if (this->itemPointersMutex.trylock_for(10000)){
                 if (LIFO){
                     int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
@@ -117,10 +99,8 @@ class Buffer{
                     int index = this->nextEmpty;
                     // Most recent item will the one immediately before the nextEmpty pointer
                     decrement(index, 1);
-
                     while (itemsRead < quantity && itemsRead < spacesUsed){
                         // Read quantity items (or as many as available if not enough) starting from the most recent
-                        printf("Index LiFo is %i.  spacesUsed : %i", index, spacesUsed);
                         addressToWrite[itemsRead] = this->pool[index];
                         decrement(index, 1);
                         itemsRead++;
@@ -132,7 +112,6 @@ class Buffer{
                     int index = this->oldestItem;
                     int spacesUsed = this->maxSize - this->difference(this->oldestItem, this->nextEmpty);
                     while (itemsRead < quantity && itemsRead < spacesUsed){
-                        printf("Index is %i", this->oldestItem);
                         addressToWrite[itemsRead] = this->pool[index];
                         increment(index, 1);
                         itemsRead++;
@@ -159,7 +138,6 @@ class Buffer{
                             // The buffer is now empty
                             this->oldestItem = -1;
                         }
-                        printf("\nRemoved ");
                     }
                     this->amountToDeleteMutex.unlock();
                     this->itemPointersMutex.unlock();
@@ -185,12 +163,10 @@ class Buffer{
                     if (this->waitingConsumers[i].requestedItems == 0){
                         this->waitingConsumers[i] = consumer{ThisThread::get_id(), quantity};
                         this->waitingConsumersMutex.unlock();
-                        printf("About to start waiting");
                         uint32_t flags = ThisThread::flags_wait_all_for(1, 100s, true);
                         if (flags != 1){
-                            printf("An error occured, the flags were %i", flags);
+                            // CRITICAL ERROR, timed out
                         }
-                        printf("%i Finished waiting", i);
                         break;
                     }
                 }
@@ -198,30 +174,12 @@ class Buffer{
                     // There were no free slots
                     // CRITICAL ERROR (too many consumers)
                 }
-                /*if (this->consumersCount <= 5){
-                   this->waitingConsumers[this->consumersCount - 1] = consumer{ThisThread::get_id(), quantity};
-                   this->waitingConsumersMutex.unlock();
-                   ThisThread::flags_wait_all_for(1, 100s, true);
-                   // Get mutex again to remove this thread from waitingConsumers, as it is no longer waiting
-                   if (this->waitingConsumersMutex.trylock_for(10s)){
-                       this->consumersCount--;
-                       this->waitingConsumersMutex.unlock();
-                   }
-                   else{
-                       // CRITICAL ERROR (mutex timeout)
-                   }
-                }
-                else{
-                    // CRITICAL ERROR (too many consumers)
-                } */
             }
             else{
                 // CRITICAL ERROR (mutex timeout)
                 printf("RequestItems mutex timeout");
             }
         }
-
-        void removeItems();
         // The buffer is circular, so special increment / decrement functions are useful
         void increment(int &pointer, int amount){
             if (this->maxSize <= pointer + amount) pointer = amount - (this->maxSize - pointer);
@@ -243,78 +201,9 @@ class Buffer{
             else return this->maxSize + totalDifference;  // maxSize is never modified so no need for thread synchronisation 
         }
 
-        T* allocate(){
-            // Allocate a block and return a pointer to it
-            if(this->blocksUsed < this->maxSize){
-                if (this->nextFreeBlock == nullptr){
-                    // There are no previously deallocated blocks, so allocate the next free block for the first time
-                    T* newBlock = this->pool + this->blocksUsed;
-                    this->blocksUsed++;
-                    return newBlock;
-                }
-                else{
-                    // Use the next deallocated block
-                    T* newBlock = this->nextFreeBlock;
-                    // Copy the pointer in the deallocated block, that points to the next deallocated block, into nextFreeBlock
-                    this->nextFreeBlock = (T*) (int) *newBlock;
-                    this->blocksUsed++;
-                    return newBlock;
-                }
-            }
-            else{
-                // There are no unallocated blocks left
-                return nullptr;
-            }
-        }
-
-        void deallocate(T* address){
-            // Write the value of nextFreeBlock to the address to be deallocated
-            *address = (int)this->nextFreeBlock;
-            // Convert this address to an index, and write it to nextFreeBlock
-            this->nextFreeBlock = address;
-            this->blocksUsed--;
-        }
-        int maxSize, blocksUsed, oldestItem, nextEmpty;  // maxSize is the number of places in the buffer, blocksUsed is the number of blocks in the pool that are currently allocated.  oldestItem is the index in the queue of the oldest item in the queue, nextEmpty is index of oldest free postion
-        T *pool, *nextFreeBlock, *queue;  // pool points to the memory pool, nextFreeBlockBlock to the next deallocated block, and queue is an array of pointers to blocks in pool
+        int maxSize, oldestItem, nextEmpty;  // maxSize is the number of places in the buffer, oldestItem is the index in the queue of the oldest item in the queue, nextEmpty is index of oldest free postion
+        T *pool;  // Pool points to the space allocated for the data
         int amountToDelete, consumersUsingData;  // amountToDelete tells the delete thread how many items to delete, consumersUsingData is used for consumer threads to announce that they no longer need the data in the buffer (so the delete thread can safely delete)
-        consumer waitingConsumers[5];
+        consumer waitingConsumers[5];  // Contains details of consumer threads waiting to be woken when enough items become available
         Mutex itemPointersMutex, amountToDeleteMutex, waitingConsumersMutex;  // oldestItem and nextEmpty will always be used together so can share the same mutex
 };
-
-/* template <class T>
-Buffer<T>::Buffer(int maxSize){
-    int itemSize = sizeof(T);
-}
-
-template <class T>
-Buffer<T>::~Buffer(){
-
-}
-
-template <class T>
-void Buffer<T>::addItem(T item){
-    printf("Added");
-} 
-
-template <class T>
-void Buffer<T>::readItems(int quantity, int &addressToWrite, bool LIFO, bool removeAfterRead){
-
-}
-
-template <class T>
-void Buffer<T>::requestItems(int threadHandle, int quantity){
-
-}
-template <class T>
-void Buffer<T>::removeItems(){
-
-}
-template <class T>
-int Buffer<T>::increment(int pointer, int amount){
-    return 0;
-}
-
-template <class T>
-int Buffer<T>::decrement(int pointer, int amount){
-    return 0;
-} */
