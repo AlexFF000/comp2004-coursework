@@ -178,6 +178,9 @@ class Buffer{
                 if (i == 5){
                     // There were no free slots
                     // CRITICAL ERROR (too many consumers)
+                    this->waitingConsumersMutex.unlock();
+                    // Must terminate, otherwise it will continue back to readItems and potentially read items that aren't available
+                    MBED_ERROR(MBED_MAKE_ERROR(MBED_MODULE_APPLICATION, MBED_ERROR_CODE_EWOULDBLOCK), "Too many consumers already waiting");  // EWOULDBLOCK = 35 = Resource Temporarily Unavailable
                 }
             }
             else{

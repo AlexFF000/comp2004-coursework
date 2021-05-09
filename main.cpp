@@ -5,13 +5,17 @@
 // main() runs in its own thread in the OS
 void addItems();
 void removeItems();
-Thread t1, t2;
+Thread t1, t2, t3, t4, t5, t6, t7;
 Buffer<readings> bf(50);
 int main()
 {
     printf("-----------New Start-----------");
     t1.start(addItems);
     t2.start(removeItems);
+    t3.start(removeItems);
+    t4.start(removeItems);
+    t5.start(removeItems);
+    t6.start(removeItems);
     /*Buffer<readings> bf(2);
     Sensors sensors;
     while (true) {
