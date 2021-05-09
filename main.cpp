@@ -6,7 +6,7 @@
 void addItems();
 void removeItems();
 Thread t1, t2;
-Buffer<readings> bf(600);
+Buffer<readings> bf(50);
 int main()
 {
     printf("-----------New Start-----------");
@@ -32,10 +32,10 @@ void addItems(){
 
 void removeItems(){
     printf("RemoveItems thread id is: %i", (int) ThisThread::get_id());
-    readings storage[2];
+    readings storage[50];
     while (true){
-        bf.readItems(2, storage, false, true);
-        printf("Just read: %f", storage[0].pressure);
+        bf.readItems(50, storage, false, true);
+        printf("Just read: %f", storage[49].pressure);
     }
 }
 

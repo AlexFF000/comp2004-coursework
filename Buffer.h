@@ -30,14 +30,19 @@ class Buffer{
             else{
                 this->maxSize = maxSize;
                 // Allocate memory pool
-                this->pool = (T*) malloc(sizeof(T) * maxSize);
+                this->pool = new T[maxSize]; 
                 this->nextEmpty = 0;
                 this->oldestItem = -1;  // Set to -1 initially as there are no items yet
                 this->amountToDelete = 0;
                 this->consumersUsingData = 0;
             }
-        };
-        ~Buffer();
+        }
+
+        ~Buffer(){
+            // Free pool
+            delete[] this->pool;
+        }
+
         void addItem(T item){
             if(this->itemPointersMutex.trylock_for(10s)){
                 if (this->oldestItem == -1 || this->difference(this->nextEmpty, this->oldestItem) != 0){
@@ -180,11 +185,13 @@ class Buffer{
                 printf("RequestItems mutex timeout");
             }
         }
+
         // The buffer is circular, so special increment / decrement functions are useful
         void increment(int &pointer, int amount){
             if (this->maxSize <= pointer + amount) pointer = amount - (this->maxSize - pointer);
             else pointer += amount;
         }
+
         void decrement(int &pointer, int amount){
             if (pointer - amount <= -1) pointer = this->maxSize - (amount - pointer);
             else pointer -= amount;
