@@ -13,6 +13,9 @@
 */
 # include "mbed.h"
 
+bool exited = false;
+
+
 // Struct used by Buffer class to represent waiting consumers
 struct consumer{
     osThreadId_t threadId = 0;
@@ -45,23 +48,25 @@ class Buffer{
         ~Buffer();
         void addItem(T item){
             if(this->itemPointersMutex.trylock_for(10s)){
-                if (this->difference(this->nextEmpty, this->oldestItem) != 0){
+                if (this->oldestItem == -1 || this->difference(this->nextEmpty, this->oldestItem) != 0){
                     // Write to position nextEmpty in pool and increment nextEmpty
                     printf("Got difference");
                     this->pool[this->nextEmpty] = item;
                     printf("Wrote to pool");
-                    this->increment(this->nextEmpty, 1);
                     if (this->oldestItem == -1){
-                        // This is the first item to be added so increment oldestItem
-                        this->oldestItem = 0;
+                        // This is the first item to be added so point to it
+                        this->oldestItem = this->nextEmpty;
                     }
+                    this->increment(this->nextEmpty, 1);
                     // Signal waiting threads
                     if (this->waitingConsumersMutex.trylock_for(10s) && this->amountToDeleteMutex.trylock_for(10s)){
-                        int itemsAvailable = difference(this->oldestItem, this->nextEmpty);
+                        int spacesAvailable = difference(this->oldestItem, this->nextEmpty);
+                        int spacesUsed = this->maxSize - spacesAvailable;
                         osThreadId_t consumersToWake[5];
                         int consumersToWakeLength = 0;
+                        printf("Waiting: %i,  %i, %i, %i, %i, Avail: %i", waitingConsumers[0].requestedItems, waitingConsumers[1].requestedItems, waitingConsumers[2].requestedItems, waitingConsumers[3].requestedItems, waitingConsumers[4].requestedItems, spacesUsed);
                         for (int i = 0; i < 5; i++){
-                            if (this->waitingConsumers[i].requestedItems != 0 && this->waitingConsumers[i].requestedItems <= itemsAvailable){
+                            if (this->waitingConsumers[i].requestedItems != 0 && this->waitingConsumers[i].requestedItems <= spacesUsed){
                                 // Increment consumersUsingData for each consumer that will be woken.  This will prevent anything being deleted until all these threads have finished with the buffer
                                 this->consumersUsingData++;
                                 // Add threads to array to be woken after this loop, not during it.  Otherwise a race condition could be introduced as consumersUsingData could be incomplete by the time consumers wake
@@ -69,6 +74,7 @@ class Buffer{
                                 consumersToWakeLength++;
                                 // Free slot for another consumer
                                 this->waitingConsumers[i].requestedItems = 0;
+                                printf("Found consumer to wake");
                             }
                         }
                         this->waitingConsumersMutex.unlock();
@@ -76,7 +82,8 @@ class Buffer{
                         this->itemPointersMutex.unlock();
                         for (int i = 0; i < consumersToWakeLength; i++)
                             osSignalSet(consumersToWake[i], 1);
-                        
+
+                        printf("\nAdded ");
                     }
                     else{
                         // CRITICAL ERROR (mutex timeout)
@@ -85,7 +92,10 @@ class Buffer{
                 else{
                     this->itemPointersMutex.unlock();
                     // CRITICAL ERROR (queue is full)
-                    printf("Queue full");
+                    if (exited == false){
+                    printf("Queue full oldestItem: %i nextEmpty: %i", this->oldestItem, this->nextEmpty);
+                    exited = true;
+                    }
                 }
             }
             else{
@@ -96,17 +106,21 @@ class Buffer{
         // When the items are ready, they are written to an area of memory starting at addressToWrite
         void readItems(int quantity, T* addressToWrite, bool LIFO=false, bool removeAfterRead=false){
             // Wait until enough items become available
-            requestItems(quantity);
+            printf("About to request");
+            this->requestItems(quantity);
+            printf("Request done");
             if (this->itemPointersMutex.trylock_for(10000)){
                 if (LIFO){
+                    int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
                     // Read from most recent rather than oldest
                     int itemsRead = 0;
                     int index = this->nextEmpty;
                     // Most recent item will the one immediately before the nextEmpty pointer
                     decrement(index, 1);
 
-                    while (itemsRead < quantity && index != this->oldestItem - 1){
+                    while (itemsRead < quantity && itemsRead < spacesUsed){
                         // Read quantity items (or as many as available if not enough) starting from the most recent
+                        printf("Index LiFo is %i.  spacesUsed : %i", index, spacesUsed);
                         addressToWrite[itemsRead] = this->pool[index];
                         decrement(index, 1);
                         itemsRead++;
@@ -116,7 +130,9 @@ class Buffer{
                     // Default (FIFO) mode.  Read from oldest
                     int itemsRead = 0;
                     int index = this->oldestItem;
-                    while (itemsRead < quantity && index != this->nextEmpty){
+                    int spacesUsed = this->maxSize - this->difference(this->oldestItem, this->nextEmpty);
+                    while (itemsRead < quantity && itemsRead < spacesUsed){
+                        printf("Index is %i", this->oldestItem);
                         addressToWrite[itemsRead] = this->pool[index];
                         increment(index, 1);
                         itemsRead++;
@@ -139,6 +155,11 @@ class Buffer{
                         // If there is data to be deleted and no consumers need it, then delete it now
                         // Items do not need to be deleted, instead the oldestItem pointer is adjusted so they can be overwritten
                         this->increment(this->oldestItem, this->amountToDelete);
+                        if(this->oldestItem == this->nextEmpty){
+                            // The buffer is now empty
+                            this->oldestItem = -1;
+                        }
+                        printf("\nRemoved ");
                     }
                     this->amountToDeleteMutex.unlock();
                     this->itemPointersMutex.unlock();
@@ -164,7 +185,12 @@ class Buffer{
                     if (this->waitingConsumers[i].requestedItems == 0){
                         this->waitingConsumers[i] = consumer{ThisThread::get_id(), quantity};
                         this->waitingConsumersMutex.unlock();
-                        ThisThread::flags_wait_all_for(1, 100s, true);
+                        printf("About to start waiting");
+                        uint32_t flags = ThisThread::flags_wait_all_for(1, 100s, true);
+                        if (flags != 1){
+                            printf("An error occured, the flags were %i", flags);
+                        }
+                        printf("%i Finished waiting", i);
                         break;
                     }
                 }
@@ -191,6 +217,7 @@ class Buffer{
             }
             else{
                 // CRITICAL ERROR (mutex timeout)
+                printf("RequestItems mutex timeout");
             }
         }
 
@@ -201,7 +228,7 @@ class Buffer{
             else pointer += amount;
         }
         void decrement(int &pointer, int amount){
-            if (-1 <= pointer - amount) pointer = this->maxSize - (amount - pointer);
+            if (pointer - amount <= -1) pointer = this->maxSize - (amount - pointer);
             else pointer -= amount;
         }
 
