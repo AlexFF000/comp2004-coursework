@@ -4,10 +4,12 @@
     Header file for declarations related to reading the sensors
  */
 
-// Struct for holding the readings from the sensors
- #include <string>
- using std::string;
+#include "mbed.h"
+#include <string>
+#include "BMP280_SPI.h"
+using std::string;
 
+// Struct for holding the readings from the sensors
 struct readings{
      string datetime;
      float temperature;
@@ -22,5 +24,7 @@ struct readings{
         readings readSensors();
     private:
         float readLDR(), readTemperature(), readPressure();
+        AnalogIn ldr{PC_0};
+        BMP280_SPI environmentSensors{PB_5, PB_4, PB_3, PB_2};
  };
  

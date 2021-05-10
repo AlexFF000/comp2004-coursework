@@ -7,9 +7,6 @@
 #include "sensors.h"
 #include "BMP280_SPI.h"
 
-AnalogIn ldr(PC_0);
-BMP280_SPI environmentSensors(PB_5, PB_4, PB_3, PB_2);
-
 Sensors::Sensors(){
     environmentSensors.initialize();
 }
