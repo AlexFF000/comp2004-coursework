@@ -27,8 +27,7 @@ float Sensors::readTemperature(){
 }
 
 readings Sensors::readSensors(){
-    // Read the sensors and return as a readings object, including the current time in ctime format (Www Mmm dd hh:mm:ss yyyy)
-    time_t timestamp = time(NULL);
-    return readings {ctime(&timestamp), readTemperature(), readPressure(), readLDR()};
+    // Read the sensors and return as a readings object
+    return readings {time(NULL), readTemperature(), readPressure(), readLDR()};
 }
 

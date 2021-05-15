@@ -3,6 +3,8 @@
 
     Header file for declarations related to reading the sensors
  */
+#ifndef SENSORS_HEADER
+#define SENSORS_HEADER
 
 #include "mbed.h"
 #include <string>
@@ -11,7 +13,7 @@ using std::string;
 
 // Struct for holding the readings from the sensors
 struct readings{
-     string datetime;
+     time_t datetime;
      float temperature;
      float pressure;
      float lightLevel;
@@ -27,4 +29,4 @@ struct readings{
         AnalogIn ldr{PC_0};
         BMP280_SPI environmentSensors{PB_5, PB_4, PB_3, PB_2};
  };
- 
+ #endif

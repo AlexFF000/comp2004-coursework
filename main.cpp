@@ -1,6 +1,7 @@
 #include "mbed.h"
 #include "sensors.h"
 #include "Buffer.h"
+#include "SDCard.h"
 #include <chrono>
 
 // main() runs in its own thread in the OS
@@ -8,21 +9,28 @@ void addItems();
 void removeItems();
 void takeSample();
 void wakeSampleThread();
+void writeItemsToSD();
 
 Ticker samplingTicker;
 Thread samplingThread, t2, t3, t4, t5, t6, t7;
 Buffer<readings> samplesBuffer(50);
 Sensors sensors;
+SDCard sd;
+//DigitalOut greenLed(PC_6);
 
 chrono::milliseconds samplingInterval = 1s;  // Default sampling rate is once per second
 
 int main()
 {
     //while (true) printf("Alive");
+    //ThisThread::sleep_for(1s);
+    //SDCard sd;
     // Set up sampling thread
     samplingThread.start(takeSample);
     // Use ticker to repeatedly wake takeSample after samplingInterval
     samplingTicker.attach(&wakeSampleThread, samplingInterval);
+    writeItemsToSD();
+    //while(true)printf("SD card is inserted?: %i", sd.isInserted());
 }
 
 void addItems(){
@@ -43,6 +51,14 @@ void removeItems(){
         printf("\nNew read\n");
         for (int i = 0; i < 50; i++)
             printf("Just read: %f", storage[i].pressure);
+    }
+}
+
+void writeItemsToSD(){
+    while (true){
+        readings samples[50];
+        samplesBuffer.readItems(50, samples, false, true);
+        sd.write(samples, 50);
     }
 }
 
