@@ -17,7 +17,7 @@ void userButtonISR();
 
 EventQueue mainQueue;  // Event queue for main thread
 Ticker samplingTicker;
-Thread samplingThread, t2, t3, t4, t5, t6, t7;
+Thread samplingThread, sdThread, t3, t4, t5, t6, t7;
 Buffer<readings> samplesBuffer(50);
 Sensors sensors;
 SDCard sd;
@@ -34,10 +34,10 @@ int main()
     //ThisThread::sleep_for(1s);
     //SDCard sd;
     // Set up sampling thread
-    /*samplingThread.start(takeSample); */
+    samplingThread.start(takeSample);
     // Use ticker to repeatedly wake takeSample after samplingInterval
-    /* samplingTicker.attach(&wakeSampleThread, samplingInterval);
-    writeItemsToSD(); */
+    samplingTicker.attach(&wakeSampleThread, samplingInterval);
+    sdThread.start(&writeItemsToSD);
     //while(true)printf("SD card is inserted?: %i", sd.isInserted());
     mainQueue.dispatch_forever();
 }
@@ -93,11 +93,15 @@ void handleUserButton(){
     printf("Handler started");
     if (sd.initialised){
         // If the SD card is already initialised, then the user button flushes the buffer and unmounts it
+        ArrayWithLength<readings> items = samplesBuffer.flush();
+        sd.write(items.items, items.length);
         sd.deInitialise();
     }
     else{
         // If the SD card is not initialised, the user button mounts it and flushes the buffer to it
         sd.initialise();
+        ArrayWithLength<readings> items = samplesBuffer.flush();
+        sd.write(items.items, items.length);
     }
     // Wait 500ms before re-enabling the button in case of bounce
     ThisThread::sleep_for(500ms);

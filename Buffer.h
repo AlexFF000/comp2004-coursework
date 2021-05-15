@@ -18,6 +18,22 @@ struct consumer{
     int requestedItems = 0;
 };
 
+// Simple class used by Buffer::flush() to return data when the caller doesn't know the length in advance (std::vector not used as spec states buffer should be from first principles)
+template <class T>
+class ArrayWithLength{
+    public:
+        ArrayWithLength(int length){
+            this->length = length;
+            this->items = new T[length];
+        }
+        
+        ~ArrayWithLength(){
+            delete[] this->items;
+        }
+        int length;
+        T *items;
+};
+
 template <class T>
 class Buffer{
     public:
@@ -92,6 +108,7 @@ class Buffer{
                 printf("Mutex timeout");  // Seems to crash somewhere Error Status: 0x80010133 Code: 307 Module: 1
             }
         }
+
         // When the items are ready, they are written to an area of memory starting at addressToWrite
         void readItems(int quantity, T* addressToWrite, bool LIFO=false, bool removeAfterRead=false){
             // Wait until enough items become available
@@ -155,6 +172,37 @@ class Buffer{
             }
             else{
                 // CRITICAL ERROR (mutex timeout)
+            }
+        }
+
+        ArrayWithLength<T> flush(){
+            // Read (from oldest) all items currently in the buffer and remove them
+            if (this->itemPointersMutex.trylock_for(10s) && this->amountToDeleteMutex.trylock_for(10s)){
+                int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
+                ArrayWithLength<T> data(spacesUsed);
+                int itemsRead = 0;
+                int index = this->oldestItem;
+                while (itemsRead < spacesUsed){
+                    data.items[itemsRead] = this->pool[index];
+                    increment(index, 1);
+                    itemsRead++;
+                }
+                // Delete the items
+                this->amountToDelete = spacesUsed;
+                if (this->consumersUsingData == 0){
+                    this->increment(this->oldestItem, this->amountToDelete);
+                    if(this->oldestItem == this->nextEmpty){
+                        // The buffer is now empty
+                        this->oldestItem = -1;
+                    }
+                }
+                this->amountToDeleteMutex.unlock();
+                this->itemPointersMutex.unlock();
+                return data;
+            }
+            else{
+                // CRITICAL ERROR, mutex timeout
+                return NULL;
             }
         }
 
