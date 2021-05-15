@@ -11,26 +11,35 @@ void takeSample();
 void wakeSampleThread();
 void writeItemsToSD();
 
+void handleUserButton();
+void userButtonISR();
+
+
+EventQueue mainQueue;  // Event queue for main thread
 Ticker samplingTicker;
 Thread samplingThread, t2, t3, t4, t5, t6, t7;
 Buffer<readings> samplesBuffer(50);
 Sensors sensors;
 SDCard sd;
-//DigitalOut greenLed(PC_6);
+InterruptIn userBtn(USER_BUTTON);
 
 chrono::milliseconds samplingInterval = 1s;  // Default sampling rate is once per second
 
+bool userButtonDisabled;  // Set to true upon the user button being pressed, and set to false again once the press has been fully handled.  (To avoid noise causing handler to run multiple times)
+
 int main()
 {
+    userBtn.rise(userButtonISR);
     //while (true) printf("Alive");
     //ThisThread::sleep_for(1s);
     //SDCard sd;
     // Set up sampling thread
-    samplingThread.start(takeSample);
+    /*samplingThread.start(takeSample); */
     // Use ticker to repeatedly wake takeSample after samplingInterval
-    samplingTicker.attach(&wakeSampleThread, samplingInterval);
-    writeItemsToSD();
+    /* samplingTicker.attach(&wakeSampleThread, samplingInterval);
+    writeItemsToSD(); */
     //while(true)printf("SD card is inserted?: %i", sd.isInserted());
+    mainQueue.dispatch_forever();
 }
 
 void addItems(){
@@ -77,5 +86,29 @@ void takeSample(){
 void wakeSampleThread(){
     // A simple function to run in the ticker ISR to wake the sampling thread
     osSignalSet(samplingThread.get_id(), 1);
+}
+
+void handleUserButton(){
+    // Handles user button in a thread rather than ISR
+    printf("Handler started");
+    if (sd.initialised){
+        // If the SD card is already initialised, then the user button flushes the buffer and unmounts it
+        sd.deInitialise();
+    }
+    else{
+        // If the SD card is not initialised, the user button mounts it and flushes the buffer to it
+        sd.initialise();
+    }
+    // Wait 500ms before re-enabling the button in case of bounce
+    ThisThread::sleep_for(500ms);
+    userButtonDisabled = false;
+}
+
+void userButtonISR(){
+    // Lock on userButtonDisable is unnecessary, as another button press interrupt will have same priority as this so won't interrupt it
+    if (userButtonDisabled == false){
+        userButtonDisabled = true;
+        mainQueue.call(&handleUserButton);
+    }
 }
 

@@ -74,11 +74,14 @@ bool SDCard::initialise(){
 bool SDCard::deInitialise(){
     if (this->initialised){
         // Unmount file system and de-initialise SDBlockDevice
+        printf("Unmounting");
         startFlashingGreenLed();
         if (this->fileSystem.unmount() == 0){
             if (this->sd.deinit() == 0){
                 stopFlashingGreenLed();
+                greenLed = 0;
                 this->initialised = false;
+                printf("UnmountED");
                 return true;
             }
         }
@@ -104,7 +107,11 @@ void SDCard::write(readings *items, int quantity){
                 // Write each entry to the SD card in format: <Date/Time>: temp: <temp>, pressure: <pressure>, light: <light level>
                 // strftime used because ctime adds unwanted newline
                 strftime(datetime, 19, "%F %T", localtime(&items[i].datetime));
-                fprintf(fp, "%s: temp: %f, pressure: %f, light: %f\n", datetime, items[i].temperature, items[i].pressure, items[i].lightLevel);
+                if (fprintf(fp, "%s: temp: %f, pressure: %f, light: %f\n", datetime, items[i].temperature, items[i].pressure, items[i].lightLevel) < 0){
+                    // Log error
+                    printf("Unable to write");
+                    break;
+                }
             }
             fclose(fp);
             stopFlashingGreenLed();
@@ -113,6 +120,8 @@ void SDCard::write(readings *items, int quantity){
             printf("Wrote data");
         }
         else{
+            stopFlashingGreenLed();
+            greenLed = 1;
             // Handle SD card full
             // Error: Cannot open file
             printf("Was trying to write but something went wrong!");
