@@ -20,6 +20,11 @@ class SDCard{
         bool isInserted();
         bool initialised;
     private:
-        SDBlockDevice sd{PB_5, PB_4, PB_3, PF_3};
-        FATFileSystem fileSystem{"sd"};
+        /* 
+            Pointers used for sd and fileSystem as deinit() and unmount() don't seem to fully deinitialise the objects (e.g. sd._isInitialized still seems to be true afterwards)
+            This seems to cause issues with remounting the file system after the SD has been reinserted, even though unmount() and deinit() were called before removing
+            To get around this, pointers are used so new instances can be created on each initialise() and the old ones destroyed on deInitialise()
+        */
+        SDBlockDevice *sd;
+        FATFileSystem *fileSystem;
 };

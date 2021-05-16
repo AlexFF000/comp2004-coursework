@@ -51,15 +51,20 @@ bool SDCard::initialise(){
     if (this->isInserted()){
         startFlashingGreenLed();
         // Mount the sd card
-        if (this->sd.init() == 0){
+        // sd and fileSystem objects recreated on each initialise to get around issue explained in SDCard.h
+        this->sd = new SDBlockDevice(PB_5, PB_4, PB_3, PF_3);
+        this->fileSystem = new FATFileSystem("sd");
+        if (this->sd->init() == 0){
             // Initialised successfully, mount file system
-            if (this->fileSystem.mount(&sd) == 0){
+            int result = this->fileSystem->mount(sd);
+            if (result == 0){
                 this->initialised = true;
                 printf("\nSuccessful init\n");
                 stopFlashingGreenLed();
                 greenLed = 1;  // Turn on green LED when SD card is mounted
                 return true;
             }
+            printf("error: %i", result);
         }
         // Otherwise initialisation failed
         printf("\nFailed to init SD\n");
@@ -76,8 +81,11 @@ bool SDCard::deInitialise(){
         // Unmount file system and de-initialise SDBlockDevice
         printf("Unmounting");
         startFlashingGreenLed();
-        if (this->fileSystem.unmount() == 0){
-            if (this->sd.deinit() == 0){
+        if (this->fileSystem->unmount() == 0){
+            // sd and fileSystem objects deleted on each deInitialise to get around issue explained in SDCard.h
+            delete this->fileSystem;
+            if (this->sd->deinit() == 0){
+                delete this->sd;
                 stopFlashingGreenLed();
                 greenLed = 0;
                 this->initialised = false;
