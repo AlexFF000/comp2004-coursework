@@ -1,11 +1,11 @@
 /*
     Alex Redmond, Group R
-    This is just a modified version of the code from the DynamicWebPageExample from the COMP2004 example repository: https://github.com/UniversityOfPlymouthComputing/COMP2004-C1W2-2021
+    This is mostly just a modified version of the code from the DynamicWebPageExample from the COMP2004 example repository: https://github.com/UniversityOfPlymouthComputing/COMP2004-C1W2-2021
 
     Code for running web server for users to access latest sample
 */
 
-#include "webPage.h"
+#include "networking.h"
 #include "Buffer.h"
 #include "time.h"
 
@@ -17,6 +17,7 @@ using namespace std;
 
 #include "EthernetInterface.h"
 #include "TCPSocket.h"
+#include "NTPClient.h"
  
 #define HTTP_STATUS_LINE "HTTP/1.0 200 OK"
 #define HTTP_HEADER_FIELDS "Content-Type: text/html; charset=utf-8"
@@ -46,8 +47,13 @@ using namespace std;
 #define GATEWAY   "10.0.0.1"
 
 EthernetInterface net;
+NTPClient ntp(&net);
 LCD_16X2_DISPLAY disp;
 DigitalOut lcdBacklight(LCD_BKL_PIN);
+
+int setupEthernet(){
+    return net.connect();
+}
 
 int runServer(Buffer<readings> *samplesBuffer)
 {
@@ -55,7 +61,6 @@ int runServer(Buffer<readings> *samplesBuffer)
     
     // Connect the ethernet interface
     //net.set_network(IP, NETMASK, GATEWAY);  //For static IP
-    net.connect();
 
     // Get the network address
     SocketAddress a;
@@ -116,8 +121,10 @@ int runServer(Buffer<readings> *samplesBuffer)
 
         ThisThread::sleep_for(1s);
     }
-
-
 }
- 
-//have to close socket to re-enter
+
+time_t getTime(){
+    // Fetch time from NTP server
+    ntp.set_server("1.uk.pool.ntp.org", 123);
+    return ntp.get_timestamp();
+}

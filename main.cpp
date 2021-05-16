@@ -1,10 +1,11 @@
 #include "mbed.h"
 #include <chrono>
+#include <ctime>
 
 #include "sensors.h"
 #include "Buffer.h"
 #include "SDCard.h"
-#include "webPage.h"
+#include "networking.h"
 
 
 // main() runs in its own thread in the OS
@@ -42,7 +43,11 @@ int main()
     // Use ticker to repeatedly wake takeSample after samplingInterval
     samplingTicker.attach(&wakeSampleThread, samplingInterval);
     sdThread.start(&writeItemsToSD);
+    setupEthernet();
     httpThread.start(&startWebServer);
+    time_t timeNow = getTime();
+    printf("Time is %u", timeNow);
+    set_time(timeNow);
     //while(true)printf("SD card is inserted?: %i", sd.isInserted());
     mainQueue.dispatch_forever();
 }
