@@ -10,6 +10,8 @@
         a) To allow multiple items to be read from the buffer by the same readItems call (without needing to try to aquire the semaphore multiple times)
         b) To more easily allow multiple consumer threads
 */
+#ifndef BUFFER_HEADER
+#define BUFFER_HEADER
 # include "mbed.h"
 
 // Struct used by Buffer class to represent waiting consumers
@@ -175,6 +177,31 @@ class Buffer{
             }
         }
 
+        int readLastN(int quantity, T *addressToWrite){
+            // Read quantity items into addressToWrite from newest to oldest (LIFO) (or as many as availabe if not enough) and return the number of items read
+            // This differs from readItems as it is LIFO only and cannot delete, but it will also read as many as are available immediately (whereas readItems will wait until enough items become available)
+            if (this->itemPointersMutex.trylock_for(10s)){
+                int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
+                // Read from most recent rather than oldest
+                int itemsRead = 0;
+                int index = this->nextEmpty;
+                // Most recent item will the one immediately before the nextEmpty pointer
+                decrement(index, 1);
+                while (itemsRead < quantity && itemsRead < spacesUsed){
+                    // Read quantity items (or as many as available if not enough) starting from the most recent
+                    addressToWrite[itemsRead] = this->pool[index];
+                    decrement(index, 1);
+                    itemsRead++;
+                }
+                this->itemPointersMutex.unlock();
+                return itemsRead;
+            }
+            else{
+                // Critical Error (mutex timeout)
+                return 0;
+            } 
+        }
+
         ArrayWithLength<T> flush(){
             // Read (from oldest) all items currently in the buffer and remove them
             if (this->itemPointersMutex.trylock_for(10s) && this->amountToDeleteMutex.trylock_for(10s)){
@@ -265,3 +292,4 @@ class Buffer{
         consumer waitingConsumers[5];  // Contains details of consumer threads waiting to be woken when enough items become available
         Mutex itemPointersMutex, amountToDeleteMutex, waitingConsumersMutex;  // oldestItem and nextEmpty will always be used together so can share the same mutex
 };
+#endif

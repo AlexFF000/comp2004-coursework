@@ -1,8 +1,11 @@
 #include "mbed.h"
+#include <chrono>
+
 #include "sensors.h"
 #include "Buffer.h"
 #include "SDCard.h"
-#include <chrono>
+#include "webPage.h"
+
 
 // main() runs in its own thread in the OS
 void addItems();
@@ -11,13 +14,14 @@ void takeSample();
 void wakeSampleThread();
 void writeItemsToSD();
 
+void startWebServer();
 void handleUserButton();
 void userButtonISR();
 
 
 EventQueue mainQueue;  // Event queue for main thread
 Ticker samplingTicker;
-Thread samplingThread, sdThread, t3, t4, t5, t6, t7;
+Thread samplingThread, sdThread, httpThread, t4, t5, t6, t7;
 Buffer<readings> samplesBuffer(50);
 Sensors sensors;
 SDCard sd;
@@ -38,6 +42,7 @@ int main()
     // Use ticker to repeatedly wake takeSample after samplingInterval
     samplingTicker.attach(&wakeSampleThread, samplingInterval);
     sdThread.start(&writeItemsToSD);
+    httpThread.start(&startWebServer);
     //while(true)printf("SD card is inserted?: %i", sd.isInserted());
     mainQueue.dispatch_forever();
 }
@@ -86,6 +91,11 @@ void takeSample(){
 void wakeSampleThread(){
     // A simple function to run in the ticker ISR to wake the sampling thread
     osSignalSet(samplingThread.get_id(), 1);
+}
+
+void startWebServer(){
+    // Start web server for serving most recent sample
+    runServer(&samplesBuffer);
 }
 
 void handleUserButton(){
