@@ -10,8 +10,7 @@ class SerialInterface{
         SerialInterface(EventQueue *eventQueue);
         static void log(char *text);
         static void criticalError(char *text);
-        void processCommand();
-    private:
-        EventQueue *eventQueue;
+
         static SerialInterface *instance;
+        EventQueue *eventQueue;
 };
