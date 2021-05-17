@@ -7,6 +7,7 @@
 
 #include "networking.h"
 #include "Buffer.h"
+#include "SerialInterface.h"
 #include "time.h"
 
 #include "uop_msb_2_0_0.h"
@@ -52,7 +53,20 @@ LCD_16X2_DISPLAY disp;
 DigitalOut lcdBacklight(LCD_BKL_PIN);
 
 int setupEthernet(){
-    return net.connect();
+    // Try to connect to network
+    SerialInterface::log("Attempting to setup network connection");
+    disp.cls();
+    disp.printf("Init Network");
+    int result = net.connect();
+    disp.cls();
+    if (result == 0) disp.printf("Network Intialised");
+    else{
+        disp.locate(0, 0);
+        disp.printf("Connection");
+        disp.locate(1,0);
+        disp.printf("Failed");
+    }
+    return result;
 }
 
 int runServer(Buffer<readings> *samplesBuffer)

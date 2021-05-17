@@ -6,6 +6,7 @@
 #include "Buffer.h"
 #include "SDCard.h"
 #include "networking.h"
+#include "SerialInterface.h"
 
 
 // main() runs in its own thread in the OS
@@ -27,6 +28,7 @@ Buffer<readings> samplesBuffer(50);
 Sensors sensors;
 SDCard sd;
 InterruptIn userBtn(USER_BUTTON);
+SerialInterface terminal(&mainQueue);
 
 chrono::milliseconds samplingInterval = 1s;  // Default sampling rate is once per second
 
@@ -43,11 +45,19 @@ int main()
     // Use ticker to repeatedly wake takeSample after samplingInterval
     samplingTicker.attach(&wakeSampleThread, samplingInterval);
     sdThread.start(&writeItemsToSD);
-    setupEthernet();
-    httpThread.start(&startWebServer);
-    time_t timeNow = getTime();
-    printf("Time is %u", timeNow);
-    set_time(timeNow);
+    if (setupEthernet() == 0){
+        SerialInterface::log("Successfully connected to network");
+        httpThread.start(&startWebServer);
+        time_t timeNow = getTime();
+        printf("Time is %u", timeNow);
+        set_time(timeNow);
+    }
+    else{
+        // LOG ERROR (NOT CRITICAL)
+        printf("\nFailed to setup Ethernet interface.  Time will be wrong and HTTP server will be unavailable\n");
+        SerialInterface::log("\nThis was sent using logger.  Failed to setup Ethernet interface\n");
+    }
+    
     //while(true)printf("SD card is inserted?: %i", sd.isInserted());
     mainQueue.dispatch_forever();
 }
