@@ -45,9 +45,66 @@ void SerialInterface::criticalError(char *text){
 void processCommand(){
     string command(commandBuffer);
     if (command.find("READ NOW") == 0){
-        SerialInterface::log("\nYou said READ NOW");
+        readings latest;
+        if (samplesBuffer.readLastN(1, &latest) == 1){
+            char datetime[20];
+            strftime(datetime, 19, "%F %T", localtime(&latest.datetime));
+            printf("%s: temp: %3.3f, pressure: %4.3f, light: %3.3f\n", datetime, latest.temperature, latest.pressure, latest.lightLevel);
+        }
+        else{
+            SerialInterface::log("\nBuffer is empty");
+        }
     }
     else if (command.find("READBUFFER") == 0){
+        // Command is in format READBUFFER n, with n being number of samples to read from buffer
+        // Get number of items to read
+        int quantity = 0;
+        bool readAll = false;
+        printf("ReadAll %i", readAll);
+        if (commandBuffer[11] == 45){
+            // If number is negative, read all entries
+            readAll = true;
+        }
+        else{
+            for (int i = 11; i < 15; i++){
+                // Read up to 4 digits
+                if (48 <= commandBuffer[i] && commandBuffer[i] <= 57){
+                    // If it is a digit.  Shift existing value one place left and add new digit in ones column
+                    quantity *= 10;
+                    quantity += (commandBuffer[i] - 48);
+                }
+                else{
+                    if (i == 11){
+                        // The first digit is invalid so return error
+                        printf("Invalid number provided");
+                        return;
+                    }
+                    break;
+                }
+            }
+            printf("n is %i", quantity);
+        }
+        if (readAll){
+            // Use the flush method to get all entries, but do not actually clear the buffer
+            ArrayWithLength<readings> samples = samplesBuffer.flush(false);
+            char datetime[20];
+            printf("Reading all %i items", samples.length);
+            for (int i = samples.length - 1; 0 <= i; i--){
+                strftime(datetime, 19, "%F %T", localtime(&samples.items[i].datetime));
+                printf("%s: temp: %3.3f, pressure: %4.3f, light: %3.3f\n", datetime, samples.items[i].temperature, samples.items[i].pressure, samples.items[i].lightLevel);
+            }
+        }
+        else{
+            readings samples[quantity];
+            char datetime[20];
+            int itemsRead = samplesBuffer.readLastN(quantity, samples);
+            printf("Reading N");
+            for (int i = 0; i < itemsRead; i++){
+                strftime(datetime, 19, "%F %T", localtime(&samples[i].datetime));
+                printf("%s: temp: %3.3f, pressure: %4.3f, light: %3.3f\n", datetime, samples[i].temperature, samples[i].pressure, samples[i].lightLevel);
+            }
+        }
+
         SerialInterface::log("\nYou said READBUFFER");
     }
     else if (command.find("STATE") == 0){

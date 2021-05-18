@@ -110,7 +110,7 @@ void SDCard::write(readings *items, int quantity){
         startFlashingGreenLed();
         FILE *fp = fopen("/sd/data.txt", "a");
         if (fp != NULL){
-            char datetime[19];
+            char datetime[20];
             for (int i = 0; i < quantity; i++){
                 // Write each entry to the SD card in format: <Date/Time>: temp: <temp>, pressure: <pressure>, light: <light level>
                 // strftime used because ctime adds unwanted newline

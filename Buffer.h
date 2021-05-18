@@ -202,7 +202,7 @@ class Buffer{
             } 
         }
 
-        ArrayWithLength<T> flush(){
+        ArrayWithLength<T> flush(bool wipe=true){
             // Read (from oldest) all items currently in the buffer and remove them
             if (this->itemPointersMutex.trylock_for(10s) && this->amountToDeleteMutex.trylock_for(10s)){
                 int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
@@ -214,13 +214,16 @@ class Buffer{
                     increment(index, 1);
                     itemsRead++;
                 }
-                // Delete the items
-                this->amountToDelete = spacesUsed;
-                if (this->consumersUsingData == 0){
-                    this->increment(this->oldestItem, this->amountToDelete);
-                    if(this->oldestItem == this->nextEmpty){
-                        // The buffer is now empty
-                        this->oldestItem = -1;
+                
+                if (wipe){
+                    // Delete the items
+                    this->amountToDelete = spacesUsed;
+                    if (this->consumersUsingData == 0){
+                        this->increment(this->oldestItem, this->amountToDelete);
+                        if(this->oldestItem == this->nextEmpty){
+                            // The buffer is now empty
+                            this->oldestItem = -1;
+                        }
                     }
                 }
                 this->amountToDeleteMutex.unlock();

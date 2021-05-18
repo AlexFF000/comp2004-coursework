@@ -4,6 +4,10 @@
     Class for handling I/O through serial.  Partially uses singleton pattern
 */
 #include "mbed.h"
+#include "Buffer.h"
+#include "sensors.h"
+
+extern Buffer<readings> samplesBuffer;
 
 class SerialInterface{
     public:
