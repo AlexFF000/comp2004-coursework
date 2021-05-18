@@ -60,7 +60,7 @@ void processCommand(){
         SerialInterface::log("\nYou said SD");
     }
     else {
-        SerialInterface::log("\nUnrecongnised Command");
+        SerialInterface::log("\nUnrecognised Command");
     }
     // Clear commandBuffer
     for (int i = 0; i < 32; i++){
@@ -73,7 +73,6 @@ void processCommand(){
 void commandISR(){
     char c;
     if (serial.read(&c, 1)){
-        // Echo back to serial and add to commandBuffer
         if (!serialDisabled){
             // If a command is already being processed, ignore any further input to avoid race conditions on serialBuffer
             if (c == 13){
@@ -84,8 +83,14 @@ void commandISR(){
             else if (c == 8){
                 // Go back a char
                 commandBufferIndex = 0 <= commandBufferIndex - 1 ? commandBufferIndex -1 : 0;
+                serial.write(&c, 1);
             }
             else{
+                // Add to commandBuffer and echo back to serial so user knows what they are typing
+                // Convert lower case to upper case to make case insensitive
+                if (97 <= c && c <= 122){
+                    c-= 32;
+                }
                 commandBuffer[commandBufferIndex] = c;
                 commandBufferIndex++;
                 if (commandBufferIndex == 32){
@@ -93,8 +98,8 @@ void commandISR(){
                     commandBufferIndex = 0;
                 }
                 serial.write(&c, 1);
+                
             }
         }
-        // SerialInterface::log("Interrupt");
     }
 }
