@@ -17,6 +17,7 @@ void takeSample();
 void wakeSampleThread();
 void writeItemsToSD();
 
+void dispatchEventsOnInit();
 void startWebServer();
 void handleUserButton();
 void userButtonISR();
@@ -25,9 +26,10 @@ void userButtonISR();
 EventQueue mainQueue;  // Event queue for main thread
 EventFlags sampleFlags;
 Ticker samplingTicker;
-Thread samplingThread, sdThread, httpThread, t4, t5, t6, t7;
+Thread samplingThread, sdThread, httpThread, initDispatch;
 Buffer<readings> samplesBuffer(700);
 Sensors sensors;
+DigitalOut yellowLed(PC_3);
 SDCard sd;
 InterruptIn userBtn(USER_BUTTON);
 SerialInterface terminal(&mainQueue);
@@ -46,15 +48,9 @@ readings *sdWriteBuffer = new readings[700];
 
 int main()
 {
-    userBtn.rise(userButtonISR);
-    //while (true) printf("Alive");
-    //ThisThread::sleep_for(1s);
-    //SDCard sd;
-    // Set up sampling thread
-    samplingThread.start(takeSample);
-    // Use ticker to repeatedly wake takeSample after samplingInterval
-    changeSamplingInterval(samplingInterval);
-    sdThread.start(&writeItemsToSD);
+    // Initialisation
+    // Start initDispatch thread to run events in eventQueue (as this is needed for logging to console).  Once init is complete, the main thread takes over this responsibility
+    initDispatch.start(&dispatchEventsOnInit);
     if (setupEthernet() == 0){
         SerialInterface::log("Successfully connected to network");
         httpThread.start(&startWebServer);
@@ -68,8 +64,31 @@ int main()
         SerialInterface::log("\nThis was sent using logger.  Failed to setup Ethernet interface\n");
     }
     
-    //while(true)printf("SD card is inserted?: %i", sd.isInserted());
+    userBtn.rise(userButtonISR);
+    // Set up sampling thread
+    samplingThread.start(takeSample);
+    // Use ticker to repeatedly wake takeSample after samplingInterval
+    changeSamplingInterval(samplingInterval);
+    sdThread.start(&writeItemsToSD);
+    
+    // Once initialised the main thread is never used for anything else, so it can just dispatch events
+    osSignalSet(initDispatch.get_id(), 1);
+    // Give initDispatch time to stop
+    ThisThread::sleep_for(300ms);
+    yellowLed = 0;
     mainQueue.dispatch_forever();
+}
+
+void dispatchEventsOnInit(){
+    while (true){
+        if (ThisThread::flags_get() == 1){
+            // Exit and terminate thread
+            return;
+        }
+        // Flash the yellow LED during init
+        yellowLed = !yellowLed;
+        mainQueue.dispatch(250);
+    }
 }
 
 void addItems(){
