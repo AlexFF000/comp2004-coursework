@@ -72,6 +72,7 @@ int setupEthernet(){
 int runServer(Buffer<readings> *samplesBuffer)
 {
     printf("\r\nStarting HTTP Server\r\n");
+    SerialInterface::log("Starting HTTP Server");
     
     // Connect the ethernet interface
     //net.set_network(IP, NETMASK, GATEWAY);  //For static IP
@@ -81,10 +82,12 @@ int runServer(Buffer<readings> *samplesBuffer)
     net.get_ip_address(&a);
 
     // Show the network address
-    printf("IP address: %s\n", a.get_ip_address() ? a.get_ip_address() : "None");
+    char addressStr[100];
+    sprintf(addressStr, "IP address: %s\n", a.get_ip_address() ? a.get_ip_address() : "None");
     disp.cls();
-    disp.printf("%s\n", a.get_ip_address() ? a.get_ip_address() : "None");
+    disp.printf(addressStr);
     lcdBacklight = 1;
+    SerialInterface::log(addressStr);
 
     // Open a TCP socket on the network interface, and create a TCP connection on port 80
     TCPSocket socket;
@@ -94,10 +97,12 @@ int runServer(Buffer<readings> *samplesBuffer)
     //Set socket to listening mode (up to 5 connections)
     int err=socket.listen(5);
     if(err==0) {
-        printf("Listening OK\n\r");
+        SerialInterface::log("Listening OK\n\r");
     }
     else {
-        printf("Listen error=%d\n\r",err);
+        char errStr[50];
+        sprintf(errStr, "Listen error=%d\n\r",err);
+        SerialInterface::log(errStr);
         socket.close();
         while(1);
     }
