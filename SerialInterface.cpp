@@ -3,6 +3,7 @@
     
     Function definitions for SerialInterface
 */
+#include <cstdio>
 #include <string>
 #include "globals.h"
 #include "SerialInterface.h"
@@ -15,6 +16,7 @@ char commandBuffer[32];
 int commandBufferIndex = 0;
 bool serialDisabled;  // Set to true while a command is being processed to prevent further input
 
+void serialWriteWrapper(char *text);
 void commandISR();
 
 SerialInterface *SerialInterface::instance = NULL;
@@ -27,8 +29,8 @@ SerialInterface::SerialInterface(EventQueue *eventQueue){
 
 void SerialInterface::log(char *text){
     if (instance != NULL){
-        // Can only log if the class has been instantiated 
-        if (instance->logging == true) instance->eventQueue->call(printf, "%s\n", text);
+        // Can only log if the class has been instantiated
+        if (instance->logging == true) instance->eventQueue->call(serialWriteWrapper, text);
     }
 }
 
@@ -36,11 +38,19 @@ void SerialInterface::criticalError(char *text){
     // Turn on redLed
     redLed = 1;
     // Print regardless of whether logging is enabled or not
-    printf("%s\n", text);
+    serialWriteWrapper(text);
     // Give the user time to read the output
     ThisThread::sleep_for(5s);
     // Restart
     NVIC_SystemReset();
+}
+
+void serialWriteWrapper(char *text){
+    // Add newline to text and send to serial.out
+    std::string textNewLine = std::string(text);
+    textNewLine += "\n";
+    serial.write(textNewLine.c_str(), textNewLine.length());
+    serial.sync();
 }
 
 void processCommand(){
@@ -50,10 +60,12 @@ void processCommand(){
         if (samplesBuffer.readLastN(1, &latest) == 1){
             char datetime[20];
             strftime(datetime, 19, "%F %T", localtime(&latest.datetime));
-            printf("%s: temp: %3.3f, pressure: %4.3f, light: %3.3f\n", datetime, latest.temperature, latest.pressure, latest.lightLevel);
+            char item[100];
+            sprintf(item, "\n%s: temp: %3.3f, pressure: %4.3f, light: %3.3f", datetime, latest.temperature, latest.pressure, latest.lightLevel);
+            serialWriteWrapper(item);
         }
         else{
-            SerialInterface::log("\nBuffer is empty");
+            serialWriteWrapper("\nBuffer is empty");
         }
     }
     else if (command.find("READBUFFER") == 0){
@@ -61,7 +73,6 @@ void processCommand(){
         // Get number of items to read
         int quantity = 0;
         bool readAll = false;
-        printf("ReadAll %i", readAll);
         if (commandBuffer[11] == 45){
             // If number is negative, read all entries
             readAll = true;
@@ -77,36 +88,45 @@ void processCommand(){
                 else{
                     if (i == 11){
                         // The first digit is invalid so return error
-                        printf("Invalid number provided");
+                        serialWriteWrapper("\nInvalid number provided");
+                        // Clear commandBuffer
+                        for (int i = 0; i < 32; i++){
+                            commandBuffer[i] = 0;
+                        }
+                        commandBufferIndex = 0;
+                        serialDisabled = false;
                         return;
                     }
                     break;
                 }
             }
-            printf("n is %i", quantity);
         }
         if (readAll){
             // Use the flush method to get all entries, but do not actually clear the buffer
             ArrayWithLength<readings> samples = samplesBuffer.flush(false);
             char datetime[20];
-            printf("Reading all %i items", samples.length);
+            char data[100];
+            sprintf(data, "\nReading all %i items", samples.length);
+            serialWriteWrapper(data);
             for (int i = samples.length - 1; 0 <= i; i--){
                 strftime(datetime, 19, "%F %T", localtime(&samples.items[i].datetime));
-                printf("%s: temp: %3.3f, pressure: %4.3f, light: %3.3f\n", datetime, samples.items[i].temperature, samples.items[i].pressure, samples.items[i].lightLevel);
+                sprintf(data, "%s: temp: %3.3f, pressure: %4.3f, light: %3.3f", datetime, samples.items[i].temperature, samples.items[i].pressure, samples.items[i].lightLevel);
+                serialWriteWrapper(data);
             }
         }
         else{
             readings samples[quantity];
             char datetime[20];
+            char data[100];
             int itemsRead = samplesBuffer.readLastN(quantity, samples);
-            printf("Reading N");
+            sprintf(data, "\nReading %i items", itemsRead);
+            serialWriteWrapper(data);
             for (int i = 0; i < itemsRead; i++){
                 strftime(datetime, 19, "%F %T", localtime(&samples[i].datetime));
-                printf("%s: temp: %3.3f, pressure: %4.3f, light: %3.3f\n", datetime, samples[i].temperature, samples[i].pressure, samples[i].lightLevel);
+                sprintf(data, "%s: temp: %3.3f, pressure: %4.3f, light: %3.3f", datetime, samples[i].temperature, samples[i].pressure, samples[i].lightLevel);
+                serialWriteWrapper(data);
             }
         }
-
-        SerialInterface::log("\nYou said READBUFFER");
     }
     else if (command.find("SET T") == 0){
         // Command is in format SET T n, where n is the number of seconds between samples (can be fractional)
@@ -123,7 +143,12 @@ void processCommand(){
             else{
                 if (i == 6){
                     // The first digit is not a digit
-                    printf("Invalid Number");
+                    serialWriteWrapper("\nInvalid Number");
+                    // Clear commandBuffer
+                    for (int i = 0; i < 32; i++){
+                        commandBuffer[i] = 0;
+                    }
+                    commandBufferIndex = 0;
                     serialDisabled = false;
                     return;
                 }
@@ -139,40 +164,42 @@ void processCommand(){
         
         if (100 <= interval && interval <= 30000){
             changeSamplingInterval(interval);
-            printf("T updated to %ims", interval);
+            char text[50];
+            sprintf(text, "\nT updated to %ims", interval);
+            serialWriteWrapper(text);
         }
         else{
-            printf("Out of Range: T must be between 0.1 and 30");
+            serialWriteWrapper("\nOut of Range: T must be between 0.1 and 30");
         }
     }
     else if (command.find("STATE") == 0){
         if (commandBuffer[6] == 79 && commandBuffer[7] == 78){
             // Turn on sampling
             changeSamplingInterval(1, false);
-            printf("Turned sampling on");
+            serialWriteWrapper("\nTurned sampling on");
         }
         else if (commandBuffer[6] == 79 && commandBuffer[7] == 70 && commandBuffer[8] == 70){
             // Turn off sampling
             changeSamplingInterval(0);
-            printf("Turned sampling off");
+            serialWriteWrapper("\nTurned sampling off");
         }
         else{
-            printf("Invalid value, expected ON or OFF");
+            serialWriteWrapper("\nInvalid value, expected ON or OFF");
         }
     }
     else if (command.find("LOGGING") == 0){
         if (commandBuffer[8] == 79 && commandBuffer[9] == 78){
             // Turn on logging
             SerialInterface::instance->logging = true;
-            printf("Turned logging on");
+            serialWriteWrapper("\nTurned logging on");
         }
         else if (commandBuffer[8] == 79 && commandBuffer[9] == 70 && commandBuffer[10] == 70){
             // Turn off logging
             SerialInterface::instance->logging = false;
-            printf("Turned logging off");
+            serialWriteWrapper("\nTurned logging off");
         }
         else{
-            printf("Invalid value, expected ON or OFF");
+            serialWriteWrapper("\nInvalid value, expected ON or OFF");
         }
     }
     else if (command.find("SD") == 0){
@@ -188,11 +215,11 @@ void processCommand(){
             sd.deInitialise();
         }
         else{
-            printf("Invalid value, expected F or E");
+            serialWriteWrapper("\nInvalid value, expected F or E");
         }
     }
     else {
-        SerialInterface::log("\nUnrecognised Command");
+        serialWriteWrapper("\nUnrecognised Command");
     }
     // Clear commandBuffer
     for (int i = 0; i < 32; i++){
