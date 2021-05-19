@@ -1,6 +1,6 @@
 #include "mbed.h"
 #include <chrono>
-#include <ctime>
+#include "time.h"
 
 #include "sensors.h"
 #include "Buffer.h"
@@ -55,13 +55,14 @@ int main()
         SerialInterface::log("Successfully connected to network");
         httpThread.start(&startWebServer);
         time_t timeNow = getTime();
-        printf("Time is %u", timeNow);
         set_time(timeNow);
+        char timeStr[50];
+        sprintf(timeStr, "Set time to %s", ctime(&timeNow));
+        SerialInterface::log(timeStr);
     }
     else{
         // LOG ERROR (NOT CRITICAL)
-        printf("\nFailed to setup Ethernet interface.  Time will be wrong and HTTP server will be unavailable\n");
-        SerialInterface::log("\nThis was sent using logger.  Failed to setup Ethernet interface\n");
+        SerialInterface::log("Failed to setup Ethernet interface.  Time will be wrong and HTTP server will be unavailable");
     }
     
     userBtn.rise(userButtonISR);
@@ -92,7 +93,6 @@ void dispatchEventsOnInit(){
 }
 
 void addItems(){
-    printf("AddItems thread id is: %i", (int) ThisThread::get_id());
     float i = 0.0;
     while(true){
         //bf.addItem(readings{"h", 1.1, i, 3.3});
@@ -103,7 +103,6 @@ void addItems(){
 
 
 void writeItemsToSD(){
-    printf("Write thread is %i", ThisThread::get_id());
     while (true){
         if (sampleFlags.get() == 1){
             // Only write to sd if sampleFlag 1 is set
@@ -120,7 +119,6 @@ void writeItemsToSD(){
 }
 
 void takeSample(){
-    printf("Sample thread is %i", ThisThread::get_id());
     while(true){
         // Wait until woken by ticker interrupt
         uint32_t flags = ThisThread::flags_wait_all_for(1, 40s, true);   // Timeout is 40s as the longest sampling interval is 30s
@@ -163,7 +161,6 @@ void startWebServer(){
 
 void handleUserButton(){
     // Handles user button in a thread rather than ISR
-    printf("Handler started");
     if (sd.initialised){
         // If the SD card is already initialised, then the user button flushes the buffer and unmounts it
         ArrayWithLength<readings> items = samplesBuffer.flush();
