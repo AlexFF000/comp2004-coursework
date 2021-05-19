@@ -4,6 +4,8 @@
 
     Header file containing definitions for the class for handling the SD card
 */
+#ifndef SD_HEADER
+#define SD_HEADER
 #include "mbed.h"
 #include "SDBlockDevice.h"
 #include "FATFileSystem.h"
@@ -28,3 +30,4 @@ class SDCard{
         SDBlockDevice *sd;
         FATFileSystem *fileSystem;
 };
+#endif

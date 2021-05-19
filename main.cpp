@@ -7,6 +7,7 @@
 #include "SDCard.h"
 #include "networking.h"
 #include "SerialInterface.h"
+#include "globals.h"
 
 
 // main() runs in its own thread in the OS
@@ -22,15 +23,17 @@ void userButtonISR();
 
 
 EventQueue mainQueue;  // Event queue for main thread
+EventFlags sampleFlags;
 Ticker samplingTicker;
 Thread samplingThread, sdThread, httpThread, t4, t5, t6, t7;
-Buffer<readings> samplesBuffer(50);
+Buffer<readings> samplesBuffer(700);
 Sensors sensors;
 SDCard sd;
 InterruptIn userBtn(USER_BUTTON);
 SerialInterface terminal(&mainQueue);
 
-chrono::milliseconds samplingInterval = 1s;  // Default sampling rate is once per second
+time_t samplingInterval = 1000;  // Default sampling rate is once per second
+int sdWriteThreshold = 159;
 
 bool userButtonDisabled;  // Set to true upon the user button being pressed, and set to false again once the press has been fully handled.  (To avoid noise causing handler to run multiple times)
 
@@ -43,7 +46,7 @@ int main()
     // Set up sampling thread
     samplingThread.start(takeSample);
     // Use ticker to repeatedly wake takeSample after samplingInterval
-    samplingTicker.attach(&wakeSampleThread, samplingInterval);
+    changeSamplingInterval(samplingInterval);
     sdThread.start(&writeItemsToSD);
     if (setupEthernet() == 0){
         SerialInterface::log("Successfully connected to network");
@@ -72,26 +75,26 @@ void addItems(){
     }
 }
 
-void removeItems(){
-    printf("RemoveItems thread id is: %i", (int) ThisThread::get_id());
-    readings storage[50];
-    while (true){
-        //bf.readItems(50, storage, false, true);
-        printf("\nNew read\n");
-        for (int i = 0; i < 50; i++)
-            printf("Just read: %f", storage[i].pressure);
-    }
-}
 
 void writeItemsToSD(){
+    printf("Write thread is %i", ThisThread::get_id());
     while (true){
-        readings samples[50];
-        samplesBuffer.readItems(50, samples, false, true);
-        sd.write(samples, 50);
+        if (sampleFlags.get() == 1){
+            // Only write to sd if sampleFlag 1 is set
+            readings samples[sdWriteThreshold];
+            samplesBuffer.readItems(sdWriteThreshold, samples, false, true);
+            SerialInterface::log("I have been woken, and am about to write");
+            sd.write(samples, sdWriteThreshold);
+        }
+        else{
+            sampleFlags.wait_all(1, false);
+        }
+        
     }
 }
 
 void takeSample(){
+    printf("Sample thread is %i", ThisThread::get_id());
     while(true){
         // Wait until woken by ticker interrupt
         uint32_t flags = ThisThread::flags_wait_all_for(1, 40s, true);   // Timeout is 40s as the longest sampling interval is 30s
@@ -106,6 +109,25 @@ void takeSample(){
 void wakeSampleThread(){
     // A simple function to run in the ticker ISR to wake the sampling thread
     osSignalSet(samplingThread.get_id(), 1);
+}
+
+void changeSamplingInterval(time_t interval, bool changeInterval){
+    // Changes the interval between samples.  If interval is 0, disables sampling entirely.  If changeInterval is false, it will just re-enable sampling with the existing interval
+    if (0 < interval && changeInterval){
+        // Calculate number of items for SD write
+        // This calculation roughly meets the criteria that SD writes are done once per minute at the most frequent, and once an hour at the least
+        // It adds roughly 11s to the interval between SD writes for every 100ms sampling interval, but starts from 60s
+        sdWriteThreshold = round(((((interval / 100) - 1) * 11000) + 60000) / interval);
+        samplingInterval = interval;
+    }
+    // Clear existing ticker
+    samplingTicker.detach();
+    if (0 < interval){
+        // Make sure flags for writing to SD are set
+        sampleFlags.set(1);
+        samplingTicker.attach(&wakeSampleThread, samplingInterval);
+    }
+    else sampleFlags.clear();
 }
 
 void startWebServer(){

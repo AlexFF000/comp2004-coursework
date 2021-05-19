@@ -3,11 +3,13 @@
     
     Class for handling I/O through serial.  Partially uses singleton pattern
 */
+#ifndef SERIAL_HEADER
+#define SERIAL_HEADER
 #include "mbed.h"
-#include "Buffer.h"
 #include "sensors.h"
 
-extern Buffer<readings> samplesBuffer;
+
+extern Ticker samplingTicker;
 
 class SerialInterface{
     public:
@@ -15,6 +17,8 @@ class SerialInterface{
         static void log(char *text);
         static void criticalError(char *text);
 
+        bool logging = true;  // Turn logging on and off (critical errors not affected)
         static SerialInterface *instance;
         EventQueue *eventQueue;
 };
+#endif

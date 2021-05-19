@@ -4,6 +4,7 @@
     Function definitions for SerialInterface
 */
 #include <string>
+#include "globals.h"
 #include "SerialInterface.h"
 
 UnbufferedSerial serial(USBTX, USBRX);
@@ -27,7 +28,7 @@ SerialInterface::SerialInterface(EventQueue *eventQueue){
 void SerialInterface::log(char *text){
     if (instance != NULL){
         // Can only log if the class has been instantiated 
-        instance->eventQueue->call(printf, "%s\n", text);
+        if (instance->logging == true) instance->eventQueue->call(printf, "%s\n", text);
     }
 }
 
@@ -107,14 +108,87 @@ void processCommand(){
 
         SerialInterface::log("\nYou said READBUFFER");
     }
+    else if (command.find("SET T") == 0){
+        // Command is in format SET T n, where n is the number of seconds between samples (can be fractional)
+        time_t interval = 0;
+        // Read up to two digits before the decimal point, and 1 after
+        int i = 6;
+        while (i < 8){
+            if (48 <= commandBuffer[i] && commandBuffer[i] <= 57){
+                // If it is a digit.  Shift existing value one place left and add new digit in ones column
+                interval *= 10;
+                interval += (commandBuffer[i] - 48) * 1000;  // 1000ms in a second
+                i++;
+            }
+            else{
+                if (i == 6){
+                    // The first digit is not a digit
+                    printf("Invalid Number");
+                    return;
+                }
+                break;
+            }
+        }
+        if (commandBuffer[i] == 46){
+            // A decimal point
+            if (48 <= commandBuffer[i + 1] && commandBuffer[i + 1] <= 57){
+                interval += (commandBuffer[i + 1] - 48) * 100;
+            }
+        }
+        
+        if (100 <= interval && interval <= 30000){
+            changeSamplingInterval(interval);
+            printf("T updated to %ims", interval);
+        }
+        else{
+            printf("Out of Range: T must be between 0.1 and 30");
+        }
+    }
     else if (command.find("STATE") == 0){
-        SerialInterface::log("\nYou said STATE");
+        if (commandBuffer[6] == 79 && commandBuffer[7] == 78){
+            // Turn on sampling
+            changeSamplingInterval(1, false);
+            printf("Turned sampling on");
+        }
+        else if (commandBuffer[6] == 79 && commandBuffer[7] == 70 && commandBuffer[8] == 70){
+            // Turn off sampling
+            changeSamplingInterval(0);
+            printf("Turned sampling off");
+        }
+        else{
+            printf("Invalid value, expected ON or OFF");
+        }
     }
     else if (command.find("LOGGING") == 0){
-        SerialInterface::log("\nYou said LOGGING");
+        if (commandBuffer[8] == 79 && commandBuffer[9] == 78){
+            // Turn on logging
+            SerialInterface::instance->logging = true;
+            printf("Turned logging on");
+        }
+        else if (commandBuffer[8] == 79 && commandBuffer[9] == 70 && commandBuffer[10] == 70){
+            // Turn off logging
+            SerialInterface::instance->logging = false;
+            printf("Turned logging off");
+        }
+        else{
+            printf("Invalid value, expected ON or OFF");
+        }
     }
     else if (command.find("SD") == 0){
-        SerialInterface::log("\nYou said SD");
+        if (commandBuffer[3] == 70){
+            // Flush buffer to SD card
+            ArrayWithLength<readings> items = samplesBuffer.flush();
+            sd.write(items.items, items.length);
+        }
+        else if (commandBuffer[3] == 69){
+            // Flush buffer and unmount SD card
+            ArrayWithLength<readings> items = samplesBuffer.flush();
+            sd.write(items.items, items.length);
+            sd.deInitialise();
+        }
+        else{
+            printf("Invalid value, expected F or E");
+        }
     }
     else {
         SerialInterface::log("\nUnrecognised Command");

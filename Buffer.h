@@ -12,8 +12,8 @@
 */
 #ifndef BUFFER_HEADER
 #define BUFFER_HEADER
-# include "mbed.h"
-
+#include "mbed.h"
+#include "SerialInterface.h"
 // Struct used by Buffer class to represent waiting consumers
 struct consumer{
     osThreadId_t threadId = 0;
@@ -93,20 +93,21 @@ class Buffer{
                         this->itemPointersMutex.unlock();
                         for (int i = 0; i < consumersToWakeLength; i++)
                             osSignalSet(consumersToWake[i], 1);
-
                     }
                     else{
                         // CRITICAL ERROR (mutex timeout)
+                        SerialInterface::criticalError("Could not get mutex in addItems in time");
                     }
                 }
                 else{
                     this->itemPointersMutex.unlock();
-                    // CRITICAL ERROR (queue is full)
-                    printf("Queue full oldestItem: %i nextEmpty: %i", this->oldestItem, this->nextEmpty);
+                    // CRITICAL ERROR
+                    SerialInterface::criticalError("Buffer is full");
                 }
             }
             else{
                 // CRITICAL ERROR (mutex timeout)
+                SerialInterface::criticalError("Mutex timeout");
                 printf("Mutex timeout");  // Seems to crash somewhere Error Status: 0x80010133 Code: 307 Module: 1
             }
         }

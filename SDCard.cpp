@@ -4,7 +4,7 @@
 
     Method definitions for SDCard class
 */
-
+#include "SerialInterface.h"
 #include "SDCard.h"
 #include "sensors.h"
 #include "mbed.h"
@@ -14,23 +14,32 @@
 Thread blinkLed;
 DigitalIn cardDetect(PF_4, PullUp);
 DigitalOut greenLed(PC_6);
+EventFlags blinkFlags;
+
 
 void flashGreenLed(){
+    // EventFlags was used for this rather than Thread flags, are thread flags wouldn't seem to clear
     while (true){
-        greenLed = !greenLed;
-        ThisThread::sleep_for(250ms);
+        if (blinkFlags.get() == 1){
+            greenLed = !greenLed;
+            ThisThread::sleep_for(250ms);
+        }
+        else{
+            blinkFlags.wait_all(1, false);
+        }
     }
 }
 void startFlashingGreenLed(){
-    blinkLed.start(&flashGreenLed);
+    blinkFlags.set(1);
 }
 
 void stopFlashingGreenLed(){
-    blinkLed.terminate();
+    blinkFlags.clear();
 }
 
 SDCard::SDCard(){
     printf("\nHello from the SD card!\n");
+    blinkLed.start(&flashGreenLed);
     if (this->isInserted()){
         // Try to initialise card
         printf("\nInserted\n");
@@ -107,6 +116,9 @@ bool SDCard::isInserted(){
 void SDCard::write(readings *items, int quantity){
     if (this->initialised){
         // Flash green led while writing
+        char str[30];
+        sprintf(str, "Writing %i items", quantity);
+        SerialInterface::log(str);
         startFlashingGreenLed();
         FILE *fp = fopen("/sd/data.txt", "a");
         if (fp != NULL){
@@ -114,7 +126,7 @@ void SDCard::write(readings *items, int quantity){
             for (int i = 0; i < quantity; i++){
                 // Write each entry to the SD card in format: <Date/Time>: temp: <temp>, pressure: <pressure>, light: <light level>
                 // strftime used because ctime adds unwanted newline
-                strftime(datetime, 19, "%F %T", localtime(&items[i].datetime));
+                strftime(datetime, 20, "%F %T", localtime(&items[i].datetime));
                 if (fprintf(fp, "%s: temp: %f, pressure: %f, light: %f\n", datetime, items[i].temperature, items[i].pressure, items[i].lightLevel) < 0){
                     // Log error
                     printf("Unable to write");
