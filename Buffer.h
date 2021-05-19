@@ -42,6 +42,7 @@ class Buffer{
         // The buffer only accepts fixed size items
         Buffer(int maxSize){
             if (sizeof(T) < sizeof(T*)){
+                // NO LONGER USING FREE POINTER - REMOVE THIS
                 // For free pointer allocation to work, the type to be stored must be at least large enough to store a pointer
                 MBED_ERROR(MBED_MAKE_ERROR(MBED_MODULE_APPLICATION, MBED_ERROR_CODE_EINVAL), "T must be a large enough type to contain a pointer");  // EINVAL = 22 = Invalid Argument
             }

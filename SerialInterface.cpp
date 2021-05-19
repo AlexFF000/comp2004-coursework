@@ -124,6 +124,7 @@ void processCommand(){
                 if (i == 6){
                     // The first digit is not a digit
                     printf("Invalid Number");
+                    serialDisabled = false;
                     return;
                 }
                 break;

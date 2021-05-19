@@ -37,6 +37,13 @@ int sdWriteThreshold = 159;
 
 bool userButtonDisabled;  // Set to true upon the user button being pressed, and set to false again once the press has been fully handled.  (To avoid noise causing handler to run multiple times)
 
+/*
+    The space for holding readings to write to SD card after they have been fetched from the buffer.
+    This must be allocated on heap as the maximum number of readings is 700, which could cause a stack overflow
+    It is allocated once up here (rather than being allocated and deallocated on each write to SD) to avoid memory fragmentation
+*/
+readings *sdWriteBuffer = new readings[700];
+
 int main()
 {
     userBtn.rise(userButtonISR);
@@ -81,10 +88,10 @@ void writeItemsToSD(){
     while (true){
         if (sampleFlags.get() == 1){
             // Only write to sd if sampleFlag 1 is set
-            readings samples[sdWriteThreshold];
-            samplesBuffer.readItems(sdWriteThreshold, samples, false, true);
+            // readings samples[sdWriteThreshold];
+            samplesBuffer.readItems(sdWriteThreshold, sdWriteBuffer, false, true);
             SerialInterface::log("I have been woken, and am about to write");
-            sd.write(samples, sdWriteThreshold);
+            sd.write(sdWriteBuffer, sdWriteThreshold);
         }
         else{
             sampleFlags.wait_all(1, false);

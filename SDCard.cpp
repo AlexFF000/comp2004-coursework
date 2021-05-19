@@ -127,9 +127,11 @@ void SDCard::write(readings *items, int quantity){
                 // Write each entry to the SD card in format: <Date/Time>: temp: <temp>, pressure: <pressure>, light: <light level>
                 // strftime used because ctime adds unwanted newline
                 strftime(datetime, 20, "%F %T", localtime(&items[i].datetime));
-                if (fprintf(fp, "%s: temp: %f, pressure: %f, light: %f\n", datetime, items[i].temperature, items[i].pressure, items[i].lightLevel) < 0){
+                int result = fprintf(fp, "%s: temp: %f, pressure: %f, light: %f\n", datetime, items[i].temperature, items[i].pressure, items[i].lightLevel);
+                fflush(fp);
+                if (result < 0){
                     // Log error
-                    printf("Unable to write");
+                    printf("\n%i <-Unable to write due to error\n", result);
                     break;
                 }
             }
