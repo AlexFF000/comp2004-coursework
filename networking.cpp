@@ -54,7 +54,7 @@ DigitalOut lcdBacklight(LCD_BKL_PIN);
 
 int setupEthernet(){
     // Try to connect to network
-    SerialInterface::log("Attempting to setup network connection");
+    SerialInterface::log("Attempting to set up network connection.  This may take a while...");
     disp.cls();
     disp.printf("Init Network");
     int result = net.connect();
@@ -71,7 +71,6 @@ int setupEthernet(){
 
 int runServer(Buffer<readings> *samplesBuffer)
 {
-    printf("\r\nStarting HTTP Server\r\n");
     SerialInterface::log("Starting HTTP Server");
     
     // Connect the ethernet interface
@@ -85,7 +84,7 @@ int runServer(Buffer<readings> *samplesBuffer)
     char addressStr[100];
     sprintf(addressStr, "IP address: %s\n", a.get_ip_address() ? a.get_ip_address() : "None");
     disp.cls();
-    disp.printf(addressStr);
+    disp.printf("%s\n", a.get_ip_address() ? a.get_ip_address() : "None");
     lcdBacklight = 1;
     SerialInterface::log(addressStr);
 

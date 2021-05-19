@@ -123,9 +123,11 @@ void takeSample(){
         uint32_t flags = ThisThread::flags_wait_all_for(1, 40s, true);   // Timeout is 40s as the longest sampling interval is 30s
         if (flags != 1){
             // CRITICAL ERROR (interrupt timeout, can this occur?)
+            SerialInterface::criticalError("Ticker timeout in takeSample");
         }
         // Take a sample and add it to buffer
         samplesBuffer.addItem(sensors.readSensors());
+        SerialInterface::log("Sampled");
     }
 }
 
