@@ -9,6 +9,9 @@
     Signal/Wait is used as opposed to semaphores:
         a) To allow multiple items to be read from the buffer by the same readItems call (without needing to try to aquire the semaphore multiple times)
         b) To more easily allow multiple consumer threads
+    
+    This was originally designed to allow a graph of recent samples to be shown on the LED matrix, but this requirement was removed from the individual spec
+    As a result, some features (readItems LIFO mode and having multiple consumers) are unused
 */
 #ifndef BUFFER_HEADER
 #define BUFFER_HEADER
@@ -39,22 +42,14 @@ class ArrayWithLength{
 template <class T>
 class Buffer{
     public:
-        // The buffer only accepts fixed size items
         Buffer(int maxSize){
-            if (sizeof(T) < sizeof(T*)){
-                // NO LONGER USING FREE POINTER - REMOVE THIS
-                // For free pointer allocation to work, the type to be stored must be at least large enough to store a pointer
-                MBED_ERROR(MBED_MAKE_ERROR(MBED_MODULE_APPLICATION, MBED_ERROR_CODE_EINVAL), "T must be a large enough type to contain a pointer");  // EINVAL = 22 = Invalid Argument
-            }
-            else{
-                this->maxSize = maxSize;
-                // Allocate memory pool
-                this->pool = new T[maxSize]; 
-                this->nextEmpty = 0;
-                this->oldestItem = -1;  // Set to -1 initially as there are no items yet
-                this->amountToDelete = 0;
-                this->consumersUsingData = 0;
-            }
+            this->maxSize = maxSize;
+            // Allocate memory pool
+            this->pool = new T[maxSize]; 
+            this->nextEmpty = 0;
+            this->oldestItem = -1;  // Set to -1 initially as there are no items yet
+            this->amountToDelete = 0;
+            this->consumersUsingData = 0;
         }
 
         ~Buffer(){
@@ -71,8 +66,6 @@ class Buffer{
                         // This is the first item to be added so point to it
                         this->oldestItem = this->nextEmpty;
                     }
-                    printf("increment no %i", test);
-                    test++;
                     this->increment(this->nextEmpty, 1);
                     // Signal waiting threads
                     if (this->waitingConsumersMutex.trylock_for(10s) && this->amountToDeleteMutex.trylock_for(10s)){
@@ -99,7 +92,7 @@ class Buffer{
                     }
                     else{
                         // CRITICAL ERROR (mutex timeout)
-                        SerialInterface::criticalError("Could not get mutex in addItems in time");
+                        SerialInterface::criticalError("Mutex timeout in Buffer.addItems (waitingConsumersMutex)");
                     }
                 }
                 else{
@@ -110,8 +103,7 @@ class Buffer{
             }
             else{
                 // CRITICAL ERROR (mutex timeout)
-                SerialInterface::criticalError("Mutex timeout");
-                printf("Mutex timeout");  // Seems to crash somewhere Error Status: 0x80010133 Code: 307 Module: 1
+                SerialInterface::criticalError("Mutex timeout in Buffer.addItems (itemPointersMutex)");
             }
         }
 
@@ -119,10 +111,9 @@ class Buffer{
         void readItems(int quantity, T* addressToWrite, bool LIFO=false, bool removeAfterRead=false){
             // Wait until enough items become available
             this->requestItems(quantity);
-            printf("Test is %i", test);
             if (this->itemPointersMutex.trylock_for(10000)){
                 if (LIFO){
-                    int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
+                    int spacesUsed = difference(this->oldestItem, this->nextEmpty);
                     // Read from most recent rather than oldest
                     int itemsRead = 0;
                     int index = this->nextEmpty;
@@ -139,7 +130,7 @@ class Buffer{
                     // Default (FIFO) mode.  Read from oldest
                     int itemsRead = 0;
                     int index = this->oldestItem;
-                    int spacesUsed = this->maxSize - this->difference(this->oldestItem, this->nextEmpty);
+                    int spacesUsed = this->difference(this->oldestItem, this->nextEmpty);
                     while (itemsRead < quantity && itemsRead < spacesUsed){
                         addressToWrite[itemsRead] = this->pool[index];
                         increment(index, 1);
@@ -173,12 +164,14 @@ class Buffer{
                 }
                 else{
                     // CRITICAL ERROR (mutex timeout)
+                    SerialInterface::criticalError("Mutex timeout in Buffer.readItems (amountToDeleteMutex)");
                 }
                     
                 
             }
             else{
                 // CRITICAL ERROR (mutex timeout)
+                SerialInterface::criticalError("Mutex timeout in Buffer.readItems (itemPointersMutex)");
             }
         }
 
@@ -186,11 +179,11 @@ class Buffer{
             // Read quantity items into addressToWrite from newest to oldest (LIFO) (or as many as availabe if not enough) and return the number of items read
             // This differs from readItems as it is LIFO only and cannot delete, but it will also read as many as are available immediately (whereas readItems will wait until enough items become available)
             if (this->itemPointersMutex.trylock_for(10s)){
-                int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
+                int spacesUsed = difference(this->oldestItem, this->nextEmpty);
                 // Read from most recent rather than oldest
                 int itemsRead = 0;
                 int index = this->nextEmpty;
-                // Most recent item will the one immediately before the nextEmpty pointer
+                // Most recent item will be the one immediately before the nextEmpty pointer
                 decrement(index, 1);
                 while (itemsRead < quantity && itemsRead < spacesUsed){
                     // Read quantity items (or as many as available if not enough) starting from the most recent
@@ -203,6 +196,7 @@ class Buffer{
             }
             else{
                 // Critical Error (mutex timeout)
+                SerialInterface::criticalError("Mutex timeout in Buffer.readLastN");
                 return 0;
             } 
         }
@@ -212,7 +206,6 @@ class Buffer{
             if (this->itemPointersMutex.trylock_for(10s) && this->amountToDeleteMutex.trylock_for(10s)){
                 //int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
                 int spacesUsed = difference(this->oldestItem, this->nextEmpty);
-                printf("oldestItem is %i, nextEmpty %i, spaceUsed %i", this->oldestItem, this->nextEmpty, spacesUsed);
                 ArrayWithLength<T> data(spacesUsed);
                 int itemsRead = 0;
                 int index = this->oldestItem;
@@ -239,6 +232,7 @@ class Buffer{
             }
             else{
                 // CRITICAL ERROR, mutex timeout
+                SerialInterface::criticalError("Mutex timeout in Buffer.flush");
                 return NULL;
             }
         }
@@ -253,9 +247,10 @@ class Buffer{
                     if (this->waitingConsumers[i].requestedItems == 0){
                         this->waitingConsumers[i] = consumer{ThisThread::get_id(), quantity};
                         this->waitingConsumersMutex.unlock();
-                        uint32_t flags = ThisThread::flags_wait_all_for(1, 3600s, true);
+                        uint32_t flags = ThisThread::flags_wait_all_for(1, 3800s, true);
                         if (flags != 1){
                             // CRITICAL ERROR, timed out
+                            SerialInterface::criticalError("Flag timeout in Buffer.requestItems");
                         }
                         break;
                     }
@@ -265,12 +260,12 @@ class Buffer{
                     // CRITICAL ERROR (too many consumers)
                     this->waitingConsumersMutex.unlock();
                     // Must terminate, otherwise it will continue back to readItems and potentially read items that aren't available
-                    MBED_ERROR(MBED_MAKE_ERROR(MBED_MODULE_APPLICATION, MBED_ERROR_CODE_EWOULDBLOCK), "Too many consumers already waiting");  // EWOULDBLOCK = 35 = Resource Temporarily Unavailable
+                    SerialInterface::criticalError("Could not register consumer to buffer.  Too many already waiting");
                 }
             }
             else{
                 // CRITICAL ERROR (mutex timeout)
-                printf("RequestItems mutex timeout");
+                SerialInterface::criticalError("Mutex timeout in Buffer.requestItems");
             }
         }
 
@@ -296,7 +291,6 @@ class Buffer{
             else return this->maxSize + totalDifference;  // maxSize is never modified so no need for thread synchronisation 
         }
 
-        int test = 0;
         int maxSize, oldestItem, nextEmpty;  // maxSize is the number of places in the buffer, oldestItem is the index in the queue of the oldest item in the queue, nextEmpty is index of oldest free postion
         T *pool;  // Pool points to the space allocated for the data
         int amountToDelete, consumersUsingData;  // amountToDelete tells the delete thread how many items to delete, consumersUsingData is used for consumer threads to announce that they no longer need the data in the buffer (so the delete thread can safely delete)
