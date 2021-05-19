@@ -38,16 +38,14 @@ void stopFlashingGreenLed(){
 }
 
 SDCard::SDCard(){
-    printf("\nHello from the SD card!\n");
     blinkLed.start(&flashGreenLed);
     if (this->isInserted()){
         // Try to initialise card
-        printf("\nInserted\n");
         this->initialise();
     }
     else{
         // SD card not inserted
-        printf("\nNot Inserted\n");
+        SerialInterface::log("No SD card is inserted");
     }
 }
 
@@ -63,20 +61,26 @@ bool SDCard::initialise(){
         // sd and fileSystem objects recreated on each initialise to get around issue explained in SDCard.h
         this->sd = new SDBlockDevice(PB_5, PB_4, PB_3, PF_3);
         this->fileSystem = new FATFileSystem("sd");
-        if (this->sd->init() == 0){
+        int initResult = this->sd->init();
+        if (initResult == 0){
             // Initialised successfully, mount file system
             int result = this->fileSystem->mount(sd);
             if (result == 0){
                 this->initialised = true;
-                printf("\nSuccessful init\n");
+                SerialInterface::log("SD card initialised");
                 stopFlashingGreenLed();
                 greenLed = 1;  // Turn on green LED when SD card is mounted
                 return true;
             }
-            printf("error: %i", result);
+            char errorStr[50];
+            sprintf(errorStr, "Failed to initialise SD card: Code: %i", result);
+            SerialInterface::log(errorStr);
+            return false;
         }
         // Otherwise initialisation failed
-        printf("\nFailed to init SD\n");
+        char errorStr[50];
+        sprintf(errorStr, "Failed to initialise SD card: Code: %i", initResult);
+        SerialInterface::log(errorStr);
         return false;
     }
     else{
@@ -88,7 +92,6 @@ bool SDCard::initialise(){
 bool SDCard::deInitialise(){
     if (this->initialised){
         // Unmount file system and de-initialise SDBlockDevice
-        printf("Unmounting");
         startFlashingGreenLed();
         if (this->fileSystem->unmount() == 0){
             // sd and fileSystem objects deleted on each deInitialise to get around issue explained in SDCard.h
@@ -98,10 +101,11 @@ bool SDCard::deInitialise(){
                 stopFlashingGreenLed();
                 greenLed = 0;
                 this->initialised = false;
-                printf("UnmountED");
+                SerialInterface::log("Unmounted SD card");
                 return true;
             }
         }
+        SerialInterface::log("Failed to unmount SD card");
         return false;
     }
     // Not initalised so no need to deinit
@@ -117,7 +121,7 @@ void SDCard::write(readings *items, int quantity){
     if (this->initialised){
         // Flash green led while writing
         char str[30];
-        sprintf(str, "Writing %i items", quantity);
+        sprintf(str, "Writing %i items to SD", quantity);
         SerialInterface::log(str);
         startFlashingGreenLed();
         FILE *fp = fopen("/sd/data.txt", "a");
@@ -131,7 +135,9 @@ void SDCard::write(readings *items, int quantity){
                 fflush(fp);
                 if (result < 0){
                     // Log error
-                    printf("\n%i <-Unable to write due to error\n", result);
+                    char errorStr[50];
+                    sprintf(errorStr, "Failed to write to SD.  Code %i", result);
+                    SerialInterface::log(errorStr);
                     break;
                 }
             }
@@ -139,14 +145,12 @@ void SDCard::write(readings *items, int quantity){
             stopFlashingGreenLed();
             greenLed = 1;
             // LOG
-            printf("Wrote data");
+            SerialInterface::log("Wrote to SD");
         }
         else{
             stopFlashingGreenLed();
             greenLed = 1;
-            // Handle SD card full
-            // Error: Cannot open file
-            printf("Was trying to write but something went wrong!");
+            SerialInterface::log("Failed to write to SD");
         }
 
     }

@@ -108,7 +108,6 @@ void writeItemsToSD(){
             // Only write to sd if sampleFlag 1 is set
             // readings samples[sdWriteThreshold];
             samplesBuffer.readItems(sdWriteThreshold, sdWriteBuffer, false, true);
-            SerialInterface::log("I have been woken, and am about to write");
             sd.write(sdWriteBuffer, sdWriteThreshold);
         }
         else{
