@@ -125,7 +125,7 @@ void changeSamplingInterval(time_t interval, bool changeInterval){
     if (0 < interval){
         // Make sure flags for writing to SD are set
         sampleFlags.set(1);
-        samplingTicker.attach(&wakeSampleThread, samplingInterval);
+        samplingTicker.attach(&wakeSampleThread, std::chrono::milliseconds(samplingInterval));
     }
     else sampleFlags.clear();
 }

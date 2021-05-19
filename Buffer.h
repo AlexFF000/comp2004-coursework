@@ -70,11 +70,13 @@ class Buffer{
                         // This is the first item to be added so point to it
                         this->oldestItem = this->nextEmpty;
                     }
+                    printf("increment no %i", test);
+                    test++;
                     this->increment(this->nextEmpty, 1);
                     // Signal waiting threads
                     if (this->waitingConsumersMutex.trylock_for(10s) && this->amountToDeleteMutex.trylock_for(10s)){
-                        int spacesAvailable = difference(this->oldestItem, this->nextEmpty);
-                        int spacesUsed = this->maxSize - spacesAvailable;
+                        int spacesUsed = difference(this->oldestItem, this->nextEmpty);
+                        int spacesAvailable = this->maxSize - spacesUsed;
                         osThreadId_t consumersToWake[5];
                         int consumersToWakeLength = 0;
                         for (int i = 0; i < 5; i++){
@@ -116,6 +118,7 @@ class Buffer{
         void readItems(int quantity, T* addressToWrite, bool LIFO=false, bool removeAfterRead=false){
             // Wait until enough items become available
             this->requestItems(quantity);
+            printf("Test is %i", test);
             if (this->itemPointersMutex.trylock_for(10000)){
                 if (LIFO){
                     int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
@@ -206,7 +209,9 @@ class Buffer{
         ArrayWithLength<T> flush(bool wipe=true){
             // Read (from oldest) all items currently in the buffer and remove them
             if (this->itemPointersMutex.trylock_for(10s) && this->amountToDeleteMutex.trylock_for(10s)){
-                int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
+                //int spacesUsed = this->maxSize - difference(this->oldestItem, this->nextEmpty);
+                int spacesUsed = difference(this->oldestItem, this->nextEmpty);
+                printf("oldestItem is %i, nextEmpty %i, spaceUsed %i", this->oldestItem, this->nextEmpty, spacesUsed);
                 ArrayWithLength<T> data(spacesUsed);
                 int itemsRead = 0;
                 int index = this->oldestItem;
@@ -247,7 +252,7 @@ class Buffer{
                     if (this->waitingConsumers[i].requestedItems == 0){
                         this->waitingConsumers[i] = consumer{ThisThread::get_id(), quantity};
                         this->waitingConsumersMutex.unlock();
-                        uint32_t flags = ThisThread::flags_wait_all_for(1, 100s, true);
+                        uint32_t flags = ThisThread::flags_wait_all_for(1, 3600s, true);
                         if (flags != 1){
                             // CRITICAL ERROR, timed out
                         }
@@ -290,6 +295,7 @@ class Buffer{
             else return this->maxSize + totalDifference;  // maxSize is never modified so no need for thread synchronisation 
         }
 
+        int test = 0;
         int maxSize, oldestItem, nextEmpty;  // maxSize is the number of places in the buffer, oldestItem is the index in the queue of the oldest item in the queue, nextEmpty is index of oldest free postion
         T *pool;  // Pool points to the space allocated for the data
         int amountToDelete, consumersUsingData;  // amountToDelete tells the delete thread how many items to delete, consumersUsingData is used for consumer threads to announce that they no longer need the data in the buffer (so the delete thread can safely delete)
